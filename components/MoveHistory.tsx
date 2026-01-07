@@ -3,9 +3,10 @@ import React, { useEffect, useRef } from 'react';
 interface MoveHistoryProps {
   moves: string[]; // List of SAN moves played so far
   totalMoves: number; // Total expected moves
+  title: string; // Variation name
 }
 
-const MoveHistory: React.FC<MoveHistoryProps> = ({ moves, totalMoves }) => {
+const MoveHistory: React.FC<MoveHistoryProps> = ({ moves, totalMoves, title }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll the container (not the window) to bottom when moves update
@@ -25,14 +26,24 @@ const MoveHistory: React.FC<MoveHistoryProps> = ({ moves, totalMoves }) => {
     });
   }
 
+  // Calculate progress percentage
+  const progressPercent = totalMoves > 0 ? Math.min(100, (moves.length / totalMoves) * 100) : 0;
+
   return (
     <div className="bg-gray-800 rounded-lg shadow-md border border-gray-700 flex flex-col h-full max-h-[300px] lg:max-h-[400px]">
-      <div className="p-4 border-b border-gray-700">
-        <div className="flex justify-between items-center">
-          <h3 className="text-xl font-semibold text-white">Move History</h3>
-          <span className="text-xs text-gray-400 font-mono">
-            {moves.length}/{totalMoves} PLY
-          </span>
+      {/* Header with Progress Bar */}
+      <div className="relative border-b border-gray-700 overflow-hidden">
+        {/* Progress Indicator Background */}
+        <div 
+          className="absolute top-0 left-0 h-full bg-blue-500/20 transition-all duration-500 ease-out"
+          style={{ width: `${progressPercent}%` }}
+        />
+        
+        {/* Content */}
+        <div className="relative p-4 z-10">
+          <h3 className="text-lg font-semibold text-white truncate leading-tight" title={title}>
+            {title}
+          </h3>
         </div>
       </div>
       
