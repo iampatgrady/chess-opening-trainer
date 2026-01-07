@@ -6,7 +6,7 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Ruy Lopez: Exchange Variation",
     "eco_code": "C68",
     "parent_opening": "Ruy Lopez",
-    "moves_san_10_ply": [
+    "moves_san": [
       "e4", "e5", "Nf3", "Nc6", "Bb5", "a6", "Bxc6", "dxc6", "O-O", "f6"
     ],
     "fen_10_ply": "r1bqkbnr/1pp3pp/p1p2p2/4p3/4P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 0 6",
@@ -26,7 +26,7 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Ruy Lopez: Closed Main Line",
     "eco_code": "C84",
     "parent_opening": "Ruy Lopez",
-    "moves_san_10_ply": [
+    "moves_san": [
       "e4", "e5", "Nf3", "Nc6", "Bb5", "a6", "Ba4", "Nf6", "O-O", "Be7"
     ],
     "fen_10_ply": "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 6",
@@ -46,9 +46,10 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Ruy Lopez: Berlin Defense",
     "eco_code": "C65",
     "parent_opening": "Ruy Lopez",
-    "moves_san_10_ply": [
+    "moves_san": [
       "e4", "e5", "Nf3", "Nc6", "Bb5", "Nf6", "O-O", "Nxe4", "d4", "Nd6"
     ],
+    "player_side": "b",
     "fen_10_ply": "r1bqkb1r/pppp1ppp/2nn4/1B2p3/3P4/5N2/PPP2PPP/RNBQ1RK1 w kq - 2 6",
     "strategic_themes": [
       "The Berlin Wall",
@@ -66,7 +67,7 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Ruy Lopez: Schliemann Gambit",
     "eco_code": "C63",
     "parent_opening": "Ruy Lopez",
-    "moves_san_10_ply": [
+    "moves_san": [
       "e4", "e5", "Nf3", "Nc6", "Bb5", "f5", "Nc3", "fxe4", "Nxe4", "d5"
     ],
     "fen_10_ply": "r1bqkbnr/ppp3pp/2n5/1B1pp3/4N3/5N2/PPPP1PPP/R1BQK2R w KQkq - 0 6",
@@ -86,7 +87,7 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Italian Game: Giuoco Pianissimo",
     "eco_code": "C50",
     "parent_opening": "Italian Game",
-    "moves_san_10_ply": [
+    "moves_san": [
       "e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "d3", "Nf6", "c3", "d6"
     ],
     "fen_10_ply": "r1bqk2r/ppp2ppp/2np1n2/2b1p3/2B1P3/2PP1N2/PP3PPP/RNBQK2R w KQkq - 0 6",
@@ -106,7 +107,7 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Italian Game: Evans Gambit",
     "eco_code": "C51",
     "parent_opening": "Italian Game",
-    "moves_san_10_ply": [
+    "moves_san": [
       "e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "b4", "Bxb4", "c3", "Ba5"
     ],
     "fen_10_ply": "r1bqk1nr/pppp1ppp/2n5/b3p3/2B1P3/2P2N2/P2P1PPP/RNBQK2R w KQkq - 1 6",
@@ -126,9 +127,10 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Two Knights: Polerio Defense",
     "eco_code": "C58",
     "parent_opening": "Italian Game",
-    "moves_san_10_ply": [
+    "moves_san": [
       "e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6", "Ng5", "d5", "exd5", "Na5"
     ],
+    "player_side": "b",
     "fen_10_ply": "r1bqkb1r/ppp2ppp/5n2/n2Pp1N1/2B5/8/PPPP1PPP/RNBQK2R w KQkq - 1 6",
     "strategic_themes": [
       "Fried Liver prevention",
@@ -146,7 +148,7 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Scotch Game: Classical Variation",
     "eco_code": "C45",
     "parent_opening": "Scotch Game",
-    "moves_san_10_ply": [
+    "moves_san": [
       "e4", "e5", "Nf3", "Nc6", "d4", "exd4", "Nxd4", "Bc5", "Be3", "Qf6"
     ],
     "fen_10_ply": "r1b1k1nr/pppp1ppp/2n2q2/2b5/3NP3/4B3/PPP2PPP/RN1QKB1R w KQkq - 3 6",
@@ -166,7 +168,7 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Scotch Game: Schmidt Variation",
     "eco_code": "C45",
     "parent_opening": "Scotch Game",
-    "moves_san_10_ply": [
+    "moves_san": [
       "e4", "e5", "Nf3", "Nc6", "d4", "exd4", "Nxd4", "Nf6", "Nxc6", "bxc6"
     ],
     "fen_10_ply": "r1bqkb1r/p1pp1ppp/2p2n2/8/4P3/8/PPP2PPP/RNBQKB1R w KQkq - 0 6",
@@ -186,9 +188,10 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Petroff Defense: Classical Attack",
     "eco_code": "C42",
     "parent_opening": "Petroff Defense",
-    "moves_san_10_ply": [
+    "moves_san": [
       "e4", "e5", "Nf3", "Nf6", "Nxe5", "d6", "Nf3", "Nxe4", "d4", "d5"
     ],
+    "player_side": "b",
     "fen_10_ply": "rnbqkb1r/ppp2ppp/8/3p4/3Pn3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 6",
     "strategic_themes": [
       "Symmetry",
@@ -206,9 +209,10 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Philidor Defense: Exchange Variation",
     "eco_code": "C41",
     "parent_opening": "Philidor Defense",
-    "moves_san_10_ply": [
-      "e4", "e5", "Nf3", "d6", "d4", "exd4", "Nxd4", "Nf6", "Nc3", "Be7"
+    "moves_san": [
+      "e4", "e5", "Nf3", "d6", "d4", "exd4", "Nxd4", "Nf6"
     ],
+    "player_side": "b",
     "fen_10_ply": "rnbqk2r/ppp1bppp/3p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R w KQkq - 2 6",
     "strategic_themes": [
       "Solid pawn structure",
@@ -226,7 +230,7 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Ponziani Opening: Jaenisch Variation",
     "eco_code": "C44",
     "parent_opening": "Ponziani Opening",
-    "moves_san_10_ply": [
+    "moves_san": [
       "e4", "e5", "Nf3", "Nc6", "c3", "Nf6", "d4", "Nxe4", "d5", "Ne7"
     ],
     "fen_10_ply": "r1bqkb1r/ppppnppp/8/3Pp3/4n3/2P2N2/PP3PPP/RNBQKB1R w KQkq - 1 6",
@@ -246,7 +250,7 @@ export const OPENINGS_DB: OpeningVariation[] = [
     "name": "Four Knights: Spanish Variation",
     "eco_code": "C48",
     "parent_opening": "Four Knights Game",
-    "moves_san_10_ply": [
+    "moves_san": [
       "e4", "e5", "Nf3", "Nc6", "Nc3", "Nf6", "Bb5", "Bb4", "O-O", "O-O"
     ],
     "fen_10_ply": "r1bq1rk1/pppp1ppp/2n2n2/1B2p3/1b2P3/2N2N2/PPPP1PPP/R1BQ1RK1 w - - 6 6",

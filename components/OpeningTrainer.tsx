@@ -36,6 +36,9 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
   
   const ChessboardComponent = Chessboard as any;
 
+  // Determine user side
+  const userColor = opening.player_side || 'w';
+
   // --- Initialization ---
 
   // Handle Resize with ResizeObserver to ensure board always fits container
@@ -88,6 +91,13 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
     setHintSquares({});
     setIsCompleted(false);
     updateFeedback(newGame, 0, 'info'); 
+
+    // If User is playing Black, AI moves first
+    if (userColor === 'b') {
+        autoPlayTimeoutRef.current = setTimeout(() => {
+            playOpponentMove(0);
+        }, 800);
+    }
   }, [opening]);
 
 
@@ -108,7 +118,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
   };
 
   const playOpponentMove = (currentIndex: number) => {
-      const opponentMoveSan = opening.moves_san_10_ply[currentIndex];
+      const opponentMoveSan = opening.moves_san[currentIndex];
       if (!opponentMoveSan) return;
 
       try {
@@ -123,7 +133,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
   };
 
   const checkCompletion = (currentIndex: number) => {
-    if (currentIndex >= opening.moves_san_10_ply.length) {
+    if (currentIndex >= opening.moves_san.length) {
       setIsCompleted(true);
       setFeedback("Variation Complete!");
       setFeedbackType('success');
@@ -134,7 +144,19 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
       });
       setTimeout(() => onNextOpening(), 2500);
     } else {
-      if (currentIndex % 2 !== 0) {
+      // Determine whose turn it is
+      // White User: User=Even, AI=Odd
+      // Black User: AI=Even, User=Odd
+      
+      const isNextMoveAI = (userColor === 'w' && currentIndex % 2 !== 0) || 
+                           (userColor === 'b' && currentIndex % 2 === 0);
+
+      // Determine if the last move was made by User to give feedback
+      const lastMoveIndex = currentIndex - 1;
+      const wasUserMove = (userColor === 'w' && lastMoveIndex % 2 === 0) ||
+                          (userColor === 'b' && lastMoveIndex % 2 !== 0);
+
+      if (wasUserMove) {
         setFeedback("Correct!");
         setFeedbackType('success');
         
@@ -143,7 +165,9 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
              setFeedbackType(prev => (prev === 'success' && !isCompleted) ? 'info' : prev);
              setFeedback(prev => (prev === "Correct!" && !isCompleted) ? null : prev);
         }, 1000);
+      }
 
+      if (isNextMoveAI) {
         // TRIGGER AUTO-PLAY for Opponent
         if (autoPlayTimeoutRef.current) clearTimeout(autoPlayTimeoutRef.current);
         autoPlayTimeoutRef.current = setTimeout(() => {
@@ -157,8 +181,16 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
   const handleMoveAttempt = (sourceSquare: string, targetSquare: string): boolean => {
     if (isCompleted) return false;
 
+    // Check if it is user's turn
+    const isUserTurn = (userColor === 'w' && moveIndex % 2 === 0) ||
+                       (userColor === 'b' && moveIndex % 2 !== 0);
+
+    if (!isUserTurn) {
+        return false;
+    }
+
     // 1. Get Expected Move
-    const expectedMoveSan = opening.moves_san_10_ply[moveIndex];
+    const expectedMoveSan = opening.moves_san[moveIndex];
     if (!expectedMoveSan) return false;
 
     // 2. Check correctness (Logic match)
@@ -266,8 +298,14 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
   // --- Controls ---
 
   const handleHint = () => {
-    if (isCompleted || moveIndex >= opening.moves_san_10_ply.length) return;
-    const expectedMoveSan = opening.moves_san_10_ply[moveIndex];
+    if (isCompleted || moveIndex >= opening.moves_san.length) return;
+    
+    // Don't show hint if it's not user's turn
+    const isUserTurn = (userColor === 'w' && moveIndex % 2 === 0) ||
+                       (userColor === 'b' && moveIndex % 2 !== 0);
+    if (!isUserTurn) return;
+
+    const expectedMoveSan = opening.moves_san[moveIndex];
 
     // Peek at the move to get 'from' and 'to' squares
     const tempGame = new Chess(gameRef.current.fen());
@@ -285,22 +323,53 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
   };
 
   const handlePrevious = () => {
+    // 1. Cancel any pending auto-move first
+    if (autoPlayTimeoutRef.current) {
+        clearTimeout(autoPlayTimeoutRef.current);
+        autoPlayTimeoutRef.current = null;
+    }
+
     if (moveIndex === 0) return;
     
-    // Cancel any pending auto-move
-    if (autoPlayTimeoutRef.current) clearTimeout(autoPlayTimeoutRef.current);
+    // Helper to perform one step undo
+    const performUndo = (currentIndex: number) => {
+        try {
+            gameRef.current.undo();
+            const newIndex = currentIndex - 1;
+            onMoveIndexChange(newIndex);
+            setIsCompleted(false);
+            syncState();
+            setMoveFrom(null);
+            setHintSquares({});
+            updateFeedback(gameRef.current, newIndex, 'info');
+            return newIndex;
+        } catch (e) {
+            console.error("Undo failed", e);
+            return currentIndex;
+        }
+    };
 
-    try {
-      gameRef.current.undo();
-      const newIndex = moveIndex - 1;
-      onMoveIndexChange(newIndex);
-      setIsCompleted(false);
-      syncState();
-      setMoveFrom(null);
-      setHintSquares({});
-      updateFeedback(gameRef.current, newIndex, 'info');
-    } catch (e) {
-      console.error("Undo failed", e);
+    // Undo User move
+    let newIndex = performUndo(moveIndex);
+
+    // If we are now at an AI turn index (meaning we undid User move, so it's AI turn now),
+    // we should likely undo AI move too so the user can actually Play again.
+    // Unless we are at start (index 0) and user is Black.
+    
+    const isAiTurnNow = (userColor === 'w' && newIndex % 2 !== 0) || 
+                        (userColor === 'b' && newIndex % 2 === 0);
+
+    if (isAiTurnNow) {
+        if (newIndex > 0) {
+            // Undo AI move as well
+            performUndo(newIndex);
+        } else if (newIndex === 0 && userColor === 'b') {
+            // We are at start and it is AI turn. Trigger AI to move again.
+             if (autoPlayTimeoutRef.current) clearTimeout(autoPlayTimeoutRef.current);
+             autoPlayTimeoutRef.current = setTimeout(() => {
+                playOpponentMove(0);
+             }, 800);
+        }
     }
   };
 
@@ -315,6 +384,13 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
     onMoveIndexChange(0);
     setIsCompleted(false);
     updateFeedback(newGame, 0, 'info');
+
+    // If Black, trigger AI
+    if (userColor === 'b') {
+        autoPlayTimeoutRef.current = setTimeout(() => {
+            playOpponentMove(0);
+        }, 800);
+    }
   };
 
   const handleSkip = () => {
@@ -328,7 +404,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
         
         {/* Main Chessboard Area */}
         <div className="lg:col-span-7 xl:col-span-8 flex flex-col items-center">
-          
+            
           <div 
             ref={boardContainerRef}
             className="w-full max-w-[600px] bg-gray-800 rounded-lg shadow-2xl border-4 border-gray-700 relative flex justify-center items-center p-2"
@@ -340,6 +416,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
                 onPieceDrop={onDrop}
                 onSquareClick={onSquareClick}
                 boardWidth={boardWidth}
+                boardOrientation={userColor === 'w' ? 'white' : 'black'}
                 customDarkSquareStyle={{ backgroundColor: '#779556' }} 
                 customLightSquareStyle={{ backgroundColor: '#ebecd0' }} 
                 customSquareStyles={customSquareStyles}
@@ -393,7 +470,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
 
               <button 
                 onClick={handleHint}
-                disabled={isCompleted || moveIndex >= opening.moves_san_10_ply.length}
+                disabled={isCompleted || moveIndex >= opening.moves_san.length}
                 className="flex items-center justify-center h-12 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded border border-gray-600 transition-colors"
                 title="Hint / Highlight Move"
               >
@@ -423,7 +500,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
         <div className="lg:col-span-5 xl:col-span-4 space-y-4">
           <MoveHistory 
             moves={history} 
-            totalMoves={opening.moves_san_10_ply.length} 
+            totalMoves={opening.moves_san.length} 
           />
           <StatsPanel opening={opening} />
         </div>

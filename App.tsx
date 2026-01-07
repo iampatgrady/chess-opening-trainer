@@ -59,7 +59,7 @@ function App() {
                 <div className="flex items-baseline gap-1">
                   <span className="text-white font-mono font-bold">{moveIndex}</span>
                   <span className="text-gray-500 font-mono text-xs">/</span>
-                  <span className="text-gray-400 font-mono text-xs">{currentOpening.moves_san_10_ply.length}</span>
+                  <span className="text-gray-400 font-mono text-xs">{currentOpening.moves_san.length}</span>
                 </div>
               </div>
             </div>

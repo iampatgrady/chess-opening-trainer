@@ -3,7 +3,8 @@ export interface OpeningVariation {
   name: string;
   eco_code: string;
   parent_opening: string;
-  moves_san_10_ply: string[]; // Array of 10 moves (5 white, 5 black)
+  moves_san: string[]; // Variable length
+  player_side?: 'w' | 'b'; // 'w' for White, 'b' for Black
   fen_10_ply: string;
   strategic_themes: string[];
   statistical_profile: {
