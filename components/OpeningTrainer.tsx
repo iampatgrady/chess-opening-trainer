@@ -134,15 +134,18 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
 
   const checkCompletion = (currentIndex: number) => {
     if (currentIndex >= opening.moves_san.length) {
-      setIsCompleted(true);
-      setFeedback("Variation Complete!");
-      setFeedbackType('success');
-      confetti({
-        particleCount: 100,
-        spread: 70,
-        origin: { y: 0.6 }
-      });
-      setTimeout(() => onNextOpening(), 2500);
+      // Delay completion effects to allow piece animation (200ms) to finish
+      setTimeout(() => {
+        setIsCompleted(true);
+        setFeedback("Variation Complete!");
+        setFeedbackType('success');
+        confetti({
+          particleCount: 100,
+          spread: 70,
+          origin: { y: 0.6 }
+        });
+        setTimeout(() => onNextOpening(), 2500);
+      }, 300);
     } else {
       // Determine whose turn it is
       // White User: User=Even, AI=Odd
@@ -162,6 +165,8 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
         
         // Hide "Correct" message shortly after
         setTimeout(() => {
+             // Only clear if we haven't completed in the meantime (though logic above handles completion separate branch, 
+             // but react state updates are async/batched, safely checking prev state is good)
              setFeedbackType(prev => (prev === 'success' && !isCompleted) ? 'info' : prev);
              setFeedback(prev => (prev === "Correct!" && !isCompleted) ? null : prev);
         }, 1000);
