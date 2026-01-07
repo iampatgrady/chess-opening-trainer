@@ -12,4 +12,6 @@ export interface OpeningVariation {
     black_win_percent: number;
     draw_percent: number;
   };
+  category: 'book' | 'trap';
+  description?: string;
 }

@@ -1,45 +1,64 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import OpeningTrainer from './components/OpeningTrainer';
+import ModeToggle from './components/ModeToggle';
 import { OPENINGS_DB } from './data/openings';
 import { OpeningVariation } from './types';
-import { BookOpen, Hash } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 
 function App() {
   const [currentOpening, setCurrentOpening] = useState<OpeningVariation | null>(null);
   const [moveIndex, setMoveIndex] = useState(0);
+  const [isNewbMode, setIsNewbMode] = useState(false);
 
-  // Function to get a random opening
-  const loadRandomOpening = () => {
-    const randomIndex = Math.floor(Math.random() * OPENINGS_DB.length);
-    // Ensure we don't pick the same one twice if possible (unless only 1 exists)
-    if (OPENINGS_DB.length > 1 && currentOpening) {
-        let newOpening = OPENINGS_DB[randomIndex];
-        while (newOpening.variation_id === currentOpening.variation_id) {
-             const nextIndex = Math.floor(Math.random() * OPENINGS_DB.length);
-             newOpening = OPENINGS_DB[nextIndex];
-        }
-        setCurrentOpening(newOpening);
-    } else {
-        setCurrentOpening(OPENINGS_DB[randomIndex]);
+  // Function to get a random opening based on mode
+  const loadRandomOpening = useCallback(() => {
+    // Filter DB based on mode
+    const filteredOpenings = OPENINGS_DB.filter(op => {
+      if (isNewbMode) return op.category === 'trap';
+      return op.category === 'book' || !op.category;
+    });
+
+    if (filteredOpenings.length === 0) return;
+
+    const randomIndex = Math.floor(Math.random() * filteredOpenings.length);
+    let newOpening = filteredOpenings[randomIndex];
+
+    // Try to pick a different one if multiple exist
+    if (filteredOpenings.length > 1 && currentOpening) {
+       while (newOpening.variation_id === currentOpening.variation_id) {
+            const nextIndex = Math.floor(Math.random() * filteredOpenings.length);
+            newOpening = filteredOpenings[nextIndex];
+       }
     }
+    
+    setCurrentOpening(newOpening);
     setMoveIndex(0); // Reset moves for new opening
-  };
+  }, [isNewbMode, currentOpening]);
 
-  // Initial load
+  // Initial load & Reload when mode changes
   useEffect(() => {
     loadRandomOpening();
-  }, []);
+  }, [isNewbMode]); // Dependency on isNewbMode triggers reload automatically
+
+  const handleModeToggle = (checked: boolean) => {
+    setIsNewbMode(checked);
+    // The useEffect will handle loading the new opening
+  };
 
   if (!currentOpening) return <div className="flex h-screen items-center justify-center text-white">Loading...</div>;
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
       {/* Navbar */}
-      <header className="bg-gray-800 border-b border-gray-700 sticky top-0 z-20 h-14 flex items-center shadow-sm">
+      <header className={`border-b transition-colors duration-500 sticky top-0 z-20 h-14 flex items-center shadow-sm ${
+        isNewbMode ? 'bg-red-900/20 border-red-800' : 'bg-gray-800 border-gray-700'
+      }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-3 overflow-hidden">
-              <div className="bg-blue-600 p-1.5 rounded-lg flex-shrink-0">
+              <div className={`p-1.5 rounded-lg flex-shrink-0 transition-colors duration-300 ${
+                isNewbMode ? 'bg-red-600' : 'bg-blue-600'
+              }`}>
                 <BookOpen className="h-5 w-5 text-white" />
               </div>
               <div className="flex flex-col min-w-0">
@@ -52,16 +71,9 @@ function App() {
               </div>
             </div>
 
-            {/* Top Right Move Indicator */}
+            {/* Top Right Toggle */}
             <div className="flex-shrink-0 ml-2">
-              <div className="bg-gray-700/50 px-3 py-1.5 rounded-md border border-gray-600 flex items-center gap-2">
-                <Hash className="w-3 h-3 text-gray-400" />
-                <div className="flex items-baseline gap-1">
-                  <span className="text-white font-mono font-bold">{moveIndex}</span>
-                  <span className="text-gray-500 font-mono text-xs">/</span>
-                  <span className="text-gray-400 font-mono text-xs">{currentOpening.moves_san.length}</span>
-                </div>
-              </div>
+              <ModeToggle isNewbMode={isNewbMode} onToggle={handleModeToggle} />
             </div>
           </div>
         </div>
