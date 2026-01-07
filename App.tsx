@@ -76,13 +76,6 @@ function App() {
           onMoveIndexChange={setMoveIndex}
         />
       </main>
-      
-      {/* Footer */}
-      <footer className="bg-gray-800 border-t border-gray-700 py-6 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 text-center text-gray-500 text-sm">
-          &copy; {new Date().getFullYear()} Chess Opening Trainer. Practice makes perfect.
-        </div>
-      </footer>
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { OpeningVariation } from '../types';
 import StatsPanel from './StatsPanel';
 import MoveHistory from './MoveHistory';
 import confetti from 'canvas-confetti';
-import { RotateCcw, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, ChevronsRight, HelpCircle } from 'lucide-react';
+import { RotateCcw, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 
 interface OpeningTrainerProps {
   opening: OpeningVariation;
@@ -14,17 +14,10 @@ interface OpeningTrainerProps {
   onMoveIndexChange: (index: number) => void;
 }
 
-const PawnIcon = ({ color }: { color: 'w' | 'b' }) => (
-  <svg viewBox="0 0 24 24" className="w-6 h-6" style={{ fill: color === 'w' ? '#f3f4f6' : '#1f2937', stroke: color === 'w' ? '#1f2937' : '#9ca3af', strokeWidth: 1.5 }}>
-    <path d="M12 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z" />
-    <path d="M12 6.5a2.5 2.5 0 0 0-2.5 2.5c0 .7.2 1.3.6 1.8.4.5.4 1.2.2 1.7-.5 1.5-1.5 2-3.3 2.5 0 0 1.5.5 1.5 1v1h10v-1c0-.5 1.5-1 1.5-1-1.8-.5-2.8-1-3.3-2.5-.2-.5-.2-1.2.2-1.7.4-.5.6-1.1.6-1.8A2.5 2.5 0 0 0 12 6.5Z" />
-    <path d="M6 21h12v-1H6v1Z" />
-  </svg>
-);
-
 const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening, moveIndex, onMoveIndexChange }) => {
   // --- Game Engine (Ref) ---
   const gameRef = useRef<Chess>(new Chess());
+  const autoPlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- UI State ---
   const [fen, setFen] = useState<string>('start');
@@ -49,10 +42,10 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
     if (!boardContainerRef.current) return;
     const updateWidth = () => {
       if(boardContainerRef.current) {
-        // Use clientWidth to exclude borders (prevents clipping)
-        // Limit max size on mobile to save vertical space
-        const w = Math.min(boardContainerRef.current.clientWidth, window.innerHeight * 0.55);
-        setBoardWidth(w);
+        // Subtract 16px buffer to ensure it fits well within borders without clipping
+        // We also rely on the container to center it
+        const w = Math.min(boardContainerRef.current.clientWidth, window.innerHeight * 0.60) - 16;
+        setBoardWidth(w > 0 ? w : 300);
       }
     };
     
@@ -63,16 +56,25 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
     return () => window.removeEventListener('resize', updateWidth);
   }, []);
 
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autoPlayTimeoutRef.current) clearTimeout(autoPlayTimeoutRef.current);
+    };
+  }, []);
+
   // On Opening Change
   useEffect(() => {
     const newGame = new Chess();
     gameRef.current = newGame;
     
+    if (autoPlayTimeoutRef.current) clearTimeout(autoPlayTimeoutRef.current);
+
     setFen(newGame.fen());
     setHistory([]);
     // moveIndex is reset by parent
     setIsCompleted(false);
-    updateFeedback(newGame, 0, 'info'); // Default turn state
+    updateFeedback(newGame, 0, 'info'); 
   }, [opening]);
 
 
@@ -84,13 +86,27 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
       setFeedback(customMsg);
       return;
     }
-    // If it's just a normal turn update, set feedback to null to trigger the Icon display
     setFeedback(null);
   };
 
   const syncState = () => {
     setFen(gameRef.current.fen());
     setHistory(gameRef.current.history());
+  };
+
+  const playOpponentMove = (currentIndex: number) => {
+      const opponentMoveSan = opening.moves_san_10_ply[currentIndex];
+      if (!opponentMoveSan) return;
+
+      try {
+        gameRef.current.move(opponentMoveSan);
+        const nextIndex = currentIndex + 1;
+        onMoveIndexChange(nextIndex);
+        syncState();
+        checkCompletion(nextIndex);
+      } catch (e) {
+        console.error("Opponent auto-move failed", e);
+      }
   };
 
   const checkCompletion = (currentIndex: number) => {
@@ -105,13 +121,27 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
       });
       setTimeout(() => onNextOpening(), 2500);
     } else {
-      setFeedback("Correct!");
-      setFeedbackType('success');
-      setTimeout(() => {
-        // Only reset if we haven't completed or errored in the meantime
-        setFeedbackType(prev => (prev === 'success' && !isCompleted) ? 'info' : prev);
-        setFeedback(prev => (prev === "Correct!" && !isCompleted) ? null : prev);
-      }, 1000);
+      // If we are pending an auto-move, we might not want to flash "Correct" too aggressively,
+      // but it confirms the user action.
+      // Only show "Correct" if it was the USER'S move that just finished.
+      // Assuming User starts at 0: User (0), Opponent (1), User (2).
+      // So if currentIndex (state after move) is Odd (1, 3...), user just moved.
+      if (currentIndex % 2 !== 0) {
+        setFeedback("Correct!");
+        setFeedbackType('success');
+        
+        // Hide "Correct" message shortly after
+        setTimeout(() => {
+             setFeedbackType(prev => (prev === 'success' && !isCompleted) ? 'info' : prev);
+             setFeedback(prev => (prev === "Correct!" && !isCompleted) ? null : prev);
+        }, 1000);
+
+        // TRIGGER AUTO-PLAY for Opponent
+        if (autoPlayTimeoutRef.current) clearTimeout(autoPlayTimeoutRef.current);
+        autoPlayTimeoutRef.current = setTimeout(() => {
+            playOpponentMove(currentIndex);
+        }, 500);
+      }
     }
   };
 
@@ -122,7 +152,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
     const expectedMoveSan = opening.moves_san_10_ply[moveIndex];
     if (!expectedMoveSan) return false;
 
-    // 2. Check correctness
+    // 2. Check correctness (Logic match)
     const tempGame = new Chess(gameRef.current.fen());
     let userMove: Move | null = null;
     try {
@@ -202,6 +232,9 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
   const handlePrevious = () => {
     if (moveIndex === 0) return;
     
+    // Cancel any pending auto-move
+    if (autoPlayTimeoutRef.current) clearTimeout(autoPlayTimeoutRef.current);
+
     try {
       gameRef.current.undo();
       const newIndex = moveIndex - 1;
@@ -215,6 +248,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
   };
 
   const handleReset = () => {
+    if (autoPlayTimeoutRef.current) clearTimeout(autoPlayTimeoutRef.current);
     const newGame = new Chess();
     gameRef.current = newGame;
     setFen(newGame.fen());
@@ -225,10 +259,9 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
   };
 
   const handleSkip = () => {
+    if (autoPlayTimeoutRef.current) clearTimeout(autoPlayTimeoutRef.current);
     onNextOpening();
   };
-
-  const currentTurn = gameRef.current.turn();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -239,7 +272,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
           
           <div 
             ref={boardContainerRef}
-            className="w-full max-w-[600px] aspect-square bg-gray-800 rounded-lg shadow-2xl border-4 border-gray-700 overflow-hidden relative flex justify-center items-center"
+            className="w-full max-w-[600px] bg-gray-800 rounded-lg shadow-2xl border-4 border-gray-700 relative flex justify-center items-center p-2"
           >
             {boardWidth > 0 && (
               <ChessboardComponent 
@@ -259,7 +292,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
             )}
             
             {isCompleted && (
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center z-10 animate-in fade-in duration-300">
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center z-10 animate-in fade-in duration-300 rounded-lg">
                 <CheckCircle className="w-16 h-16 text-green-400 mb-4" />
                 <h2 className="text-3xl font-bold text-white mb-2">Excellent!</h2>
                 <p className="text-gray-300">Loading next opening...</p>
@@ -271,22 +304,21 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
           <div className="w-full max-w-[600px] mt-4 flex flex-col gap-3">
             
             {/* Feedback Status */}
-            <div className={`flex items-center justify-center gap-3 px-4 py-2 rounded-md w-full transition-colors duration-300 h-12 ${
-              feedbackType === 'error' ? 'bg-red-900/40 text-red-200 border border-red-800' :
-              feedbackType === 'success' ? 'bg-green-900/40 text-green-200 border border-green-800' :
-              'bg-gray-800/80 text-gray-200 border border-gray-700'
-            }`}>
-               {/* Always show pawn icon unless completed? No, always show who's turn it is. */}
-               {feedbackType === 'info' && !feedback && <PawnIcon color={currentTurn} />}
-               
-               {/* Icons for success/error */}
-               {feedbackType === 'error' && <AlertCircle className="w-5 h-5 flex-shrink-0" />}
-               {feedbackType === 'success' && <CheckCircle className="w-5 h-5 flex-shrink-0" />}
-               
-               {/* Text Feedback if available */}
-               {feedback && <span className="font-medium text-sm">{feedback}</span>}
-            </div>
-
+            {(feedbackType !== 'info' || feedback) && (
+              <div className={`flex items-center justify-center gap-3 px-4 py-2 rounded-md w-full transition-colors duration-300 h-12 ${
+                feedbackType === 'error' ? 'bg-red-900/40 text-red-200 border border-red-800' :
+                feedbackType === 'success' ? 'bg-green-900/40 text-green-200 border border-green-800' :
+                'bg-gray-800/80 text-gray-200 border border-gray-700'
+              }`}>
+                {/* Icons for success/error */}
+                {feedbackType === 'error' && <AlertCircle className="w-5 h-5 flex-shrink-0" />}
+                {feedbackType === 'success' && <CheckCircle className="w-5 h-5 flex-shrink-0" />}
+                
+                {/* Text Feedback */}
+                {feedback && <span className="font-medium text-sm">{feedback}</span>}
+              </div>
+            )}
+            
             {/* Navigation Buttons Row */}
             <div className="grid grid-cols-4 gap-2">
                <button 
@@ -302,7 +334,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
                 onClick={handleNext}
                 disabled={isCompleted || moveIndex >= opening.moves_san_10_ply.length}
                 className="flex items-center justify-center h-12 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded border border-gray-600 transition-colors"
-                title="Hint / Next"
+                title="Hint / Play Move"
               >
                 <ChevronRight className="w-6 h-6" /> 
               </button>
