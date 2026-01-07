@@ -1,0 +1,5 @@
+{
+  "name": "Chess Opening Trainer",
+  "description": "A responsive React application to practice chess openings. Users must replicate specific variation moves to advance.",
+  "requestFramePermissions": []
+}
