@@ -6,11 +6,13 @@ interface MoveHistoryProps {
 }
 
 const MoveHistory: React.FC<MoveHistoryProps> = ({ moves, totalMoves }) => {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when moves update
+  // Auto-scroll the container (not the window) to bottom when moves update
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    }
   }, [moves]);
 
   // Group moves into pairs for display (White, Black)
@@ -34,7 +36,10 @@ const MoveHistory: React.FC<MoveHistoryProps> = ({ moves, totalMoves }) => {
         </div>
       </div>
       
-      <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
+      <div 
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto p-4 scrollbar-thin"
+      >
         <table className="w-full text-sm text-left">
           <thead className="text-xs text-gray-400 uppercase bg-gray-800 sticky top-0">
             <tr>
@@ -71,7 +76,6 @@ const MoveHistory: React.FC<MoveHistoryProps> = ({ moves, totalMoves }) => {
                  </td>
                </tr>
             )}
-            <div ref={bottomRef} />
           </tbody>
         </table>
       </div>

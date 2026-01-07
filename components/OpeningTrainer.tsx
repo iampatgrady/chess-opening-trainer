@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Chess, Move } from 'chess.js';
+import { Chess, Move, Square } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { OpeningVariation } from '../types';
 import StatsPanel from './StatsPanel';
@@ -22,7 +22,8 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
   // --- UI State ---
   const [fen, setFen] = useState<string>('start');
   const [history, setHistory] = useState<string[]>([]);
-  // moveIndex is now a prop
+  const [moveFrom, setMoveFrom] = useState<Square | null>(null);
+  const [hintSquares, setHintSquares] = useState<Record<string, { backgroundColor: string }>>({});
 
   // Feedback
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -37,23 +38,34 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
 
   // --- Initialization ---
 
-  // Handle Resize
+  // Handle Resize with ResizeObserver to ensure board always fits container
   useEffect(() => {
     if (!boardContainerRef.current) return;
-    const updateWidth = () => {
-      if(boardContainerRef.current) {
-        // Subtract 16px buffer to ensure it fits well within borders without clipping
-        // We also rely on the container to center it
-        const w = Math.min(boardContainerRef.current.clientWidth, window.innerHeight * 0.60) - 16;
-        setBoardWidth(w > 0 ? w : 300);
-      }
-    };
-    
-    // Initial size
-    updateWidth();
-    
-    window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      // The first entry is our board container
+      const entry = entries[0];
+      if (!entry) return;
+
+      // contentRect provides the size of the content box (inside padding/borders)
+      // This is exactly the maximum width the board should take.
+      const containerWidth = entry.contentRect.width;
+      
+      // Calculate a max height based on viewport to ensure the board fits vertically on mobile
+      // leaving room for the header and controls.
+      // 65% of viewport height is usually a good safe zone for the board.
+      const maxHeight = window.innerHeight * 0.65;
+      
+      // The board is square, so we take the smaller of the available width or height.
+      // We floor it to avoid subpixel rendering issues.
+      const size = Math.floor(Math.min(containerWidth, maxHeight));
+      
+      setBoardWidth(size > 0 ? size : 300);
+    });
+
+    resizeObserver.observe(boardContainerRef.current);
+
+    return () => resizeObserver.disconnect();
   }, []);
 
   // Cleanup timeout on unmount
@@ -72,7 +84,8 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
 
     setFen(newGame.fen());
     setHistory([]);
-    // moveIndex is reset by parent
+    setMoveFrom(null);
+    setHintSquares({});
     setIsCompleted(false);
     updateFeedback(newGame, 0, 'info'); 
   }, [opening]);
@@ -121,11 +134,6 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
       });
       setTimeout(() => onNextOpening(), 2500);
     } else {
-      // If we are pending an auto-move, we might not want to flash "Correct" too aggressively,
-      // but it confirms the user action.
-      // Only show "Correct" if it was the USER'S move that just finished.
-      // Assuming User starts at 0: User (0), Opponent (1), User (2).
-      // So if currentIndex (state after move) is Odd (1, 3...), user just moved.
       if (currentIndex % 2 !== 0) {
         setFeedback("Correct!");
         setFeedbackType('success');
@@ -145,7 +153,8 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
     }
   };
 
-  const onDrop = (sourceSquare: string, targetSquare: string): boolean => {
+  // Reusable move function
+  const handleMoveAttempt = (sourceSquare: string, targetSquare: string): boolean => {
     if (isCompleted) return false;
 
     // 1. Get Expected Move
@@ -185,7 +194,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
     if (!isCorrect) {
       setFeedback(`Incorrect! Expected ${expectedMoveSan}`);
       setFeedbackType('error');
-      return false; // Snap back
+      return false; 
     }
 
     // 3. Apply to Real Game
@@ -200,6 +209,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
         const newIndex = moveIndex + 1;
         onMoveIndexChange(newIndex);
         syncState(); 
+        setHintSquares({}); // Clear hints on successful move
         checkCompletion(newIndex);
         return true;
       }
@@ -210,22 +220,67 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
     return false;
   };
 
+  const onDrop = (sourceSquare: string, targetSquare: string): boolean => {
+    const success = handleMoveAttempt(sourceSquare, targetSquare);
+    if (success) {
+      setMoveFrom(null);
+    }
+    return success;
+  };
+
+  const onSquareClick = (square: Square) => {
+    if (isCompleted) return;
+
+    // 1. If we have a selected piece, try to move to the clicked square
+    if (moveFrom) {
+       // If clicking the same square or another friendly piece, just select that instead
+       const piece = gameRef.current.get(square);
+       if (piece && piece.color === gameRef.current.turn()) {
+         setMoveFrom(square);
+         return;
+       }
+
+       const success = handleMoveAttempt(moveFrom, square);
+       if (success) {
+         setMoveFrom(null);
+       } else {
+         // Invalid move: deselect
+         setMoveFrom(null);
+       }
+       return;
+    }
+
+    // 2. If nothing selected, select the clicked square if it has a friendly piece
+    const piece = gameRef.current.get(square);
+    if (piece && piece.color === gameRef.current.turn()) {
+      setMoveFrom(square);
+    }
+  };
+
+  // Combine hint styles and selection styles
+  const customSquareStyles = {
+    ...hintSquares,
+    ...(moveFrom ? { [moveFrom]: { backgroundColor: 'rgba(255, 255, 0, 0.4)' } } : {})
+  };
+
   // --- Controls ---
 
-  const handleNext = () => {
+  const handleHint = () => {
     if (isCompleted || moveIndex >= opening.moves_san_10_ply.length) return;
     const expectedMoveSan = opening.moves_san_10_ply[moveIndex];
 
+    // Peek at the move to get 'from' and 'to' squares
+    const tempGame = new Chess(gameRef.current.fen());
     try {
-      const result = gameRef.current.move(expectedMoveSan);
-      if (result) {
-        const newIndex = moveIndex + 1;
-        onMoveIndexChange(newIndex);
-        syncState();
-        checkCompletion(newIndex);
+      const move = tempGame.move(expectedMoveSan);
+      if (move) {
+        setHintSquares({
+          [move.from]: { backgroundColor: 'rgba(0, 255, 200, 0.4)' },
+          [move.to]: { backgroundColor: 'rgba(0, 255, 200, 0.4)' }
+        });
       }
     } catch (e) {
-      console.error("Auto move failed", e);
+      console.error("Hint calculation failed", e);
     }
   };
 
@@ -241,6 +296,8 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
       onMoveIndexChange(newIndex);
       setIsCompleted(false);
       syncState();
+      setMoveFrom(null);
+      setHintSquares({});
       updateFeedback(gameRef.current, newIndex, 'info');
     } catch (e) {
       console.error("Undo failed", e);
@@ -253,6 +310,8 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
     gameRef.current = newGame;
     setFen(newGame.fen());
     setHistory([]);
+    setMoveFrom(null);
+    setHintSquares({});
     onMoveIndexChange(0);
     setIsCompleted(false);
     updateFeedback(newGame, 0, 'info');
@@ -279,9 +338,11 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
                 id="OpeningTrainerBoard"
                 position={fen} 
                 onPieceDrop={onDrop}
+                onSquareClick={onSquareClick}
                 boardWidth={boardWidth}
-                customDarkSquareStyle={{ backgroundColor: '#374151' }} 
-                customLightSquareStyle={{ backgroundColor: '#9ca3af' }} 
+                customDarkSquareStyle={{ backgroundColor: '#779556' }} 
+                customLightSquareStyle={{ backgroundColor: '#ebecd0' }} 
+                customSquareStyles={customSquareStyles}
                 customBoardStyle={{
                   borderRadius: '4px',
                   boxShadow: '0 5px 15px rgba(0, 0, 0, 0.5)'
@@ -331,10 +392,10 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
               </button>
 
               <button 
-                onClick={handleNext}
+                onClick={handleHint}
                 disabled={isCompleted || moveIndex >= opening.moves_san_10_ply.length}
                 className="flex items-center justify-center h-12 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded border border-gray-600 transition-colors"
-                title="Hint / Play Move"
+                title="Hint / Highlight Move"
               >
                 <ChevronRight className="w-6 h-6" /> 
               </button>
