@@ -1,100 +1,68 @@
-# Chess Opening Trainer
+```text
+   ______   __  __   ______   ______   ______       ______   ______   ______   __   __   __   ______    
+  /\  ___\ /\ \_\ \ /\  ___\ /\  ___\ /\  ___\     /\__  _\ /\  == \ /\  __ \ /\ \ /\ "-.\ \ /\  ___\   
+  \ \ \____\ \  __ \\ \  __\ \ \___  \\ \___  \    \/_/\ \/ \ \  __< \ \  __ \\ \ \\ \ \-.  \\ \  __\   
+   \ \_____\\ \_\ \_\\ \_____\\/\_____\\/\_____\      \ \_\  \ \_\ \_\\ \_\ \_\\ \_\\ \_\\"\_\\ \_____\ 
+    \/_____/ \/_/\/_/ \/_____/ \/_____/ \/_____/       \/_/   \/_/ /_/ \/_/\/_/ \/_/ \/_/ \/_/ \/_____/ 
+                                                                                                        
+```
 
-A modern, responsive React application designed to help players memorize chess openings and learn how to punish common beginner mistakes.
+## Purpose
 
-![Chess Opening Trainer](https://images.unsplash.com/photo-1529699211952-734e80c4d42b?auto=format&fit=crop&q=80&w=1000)
+**Chess Opening Trainer** is a specialized tool developed to internalize chess opening variations through active recall. Unlike passive study methods, this application forces the user to execute moves on the board against an engine that responds with specific, pre-programmed lines. This reinforces muscle memory and pattern recognition, simulating the pressure of over-the-board play while providing immediate feedback on theoretical accuracy.
 
-## 🎯 Overview
+## Core Systems
 
-Mastering chess openings requires repetition and understanding. This application provides an interactive environment where users must replicate specific variation moves to advance. It features two distinct modes:
+### 1. Training Architecture
+The application splits the opening database into two distinct learning paths:
+*   **Book Mode**: Focuses on standard theory—solid, high-percentage lines like the Ruy Lopez, Sicilian Defense, and Queen's Gambit.
+*   **Newb Mode**: A curated collection of common sub-1000 ELO traps and blunders (e.g., Wayward Queen, Fried Liver), training the user to identify and punish dubious play efficiently.
 
-1.  **Book Mode**: Practice standard theoretical lines like the Ruy Lopez, Italian Game, and Sicilian Defense.
-2.  **Newb Mode (500 Elo Simulation)**: Learn to identify and punish common blunders and dubious traps often seen at the beginner level (e.g., Wayward Queen Attack).
+### 2. Weighted Selection Logic
+The application utilizes a probability-based selection algorithm derived from the user's local performance history. Variations with lower success rates or higher mistake counts are assigned higher weights, ensuring that weaknesses are addressed more frequently than mastered lines within a training cycle.
 
-## ✨ Features
+### 3. State Management & Analytics
+*   **Game State**: Leverages `chess.js` for FEN generation, move validation, and game history.
+*   **Persistence**: Uses `localStorage` to persist training attempts, calculating metrics such as average move time, success rate per variation, and global completion status without requiring a backend.
 
-*   **Interactive Chessboard**: Smooth drag-and-drop or click-to-move interface powered by `react-chessboard`.
-*   **Real-time Validation**: Instant feedback on whether your move matches the target variation.
-*   **Smart Move Assistance**:
-    *   **Hint System**: Highlights the start and end squares for the correct move.
-    *   **Auto-Play**: The "opponent" automatically plays their response.
-    *   **Undo/Retry**: Easily step back through the move history.
-*   **Dual Modes**: Toggle between studying serious theory (`Book Mode`) and tactical refutations (`Newb Mode`).
-*   **Strategic Context**: Displays key strategic themes and explanations for every opening.
-*   **Responsive Design**: Fully optimized for both desktop and mobile devices using Tailwind CSS.
-*   **Celebration Effects**: Confetti animations upon successfully completing a variation.
+## Tech Stack
 
-## 🛠️ Tech Stack
+*   **Frontend**: React 18, TypeScript
+*   **Styling**: Tailwind CSS (Utility-first architecture)
+*   **Logic**: chess.js (Move validation & generation)
+*   **Visualization**: react-chessboard
+*   **Icons**: Lucide React
 
-*   **Framework**: React 18 with TypeScript
-*   **Styling**: Tailwind CSS
-*   **Chess Logic**: `chess.js` (Move validation, FEN generation)
-*   **Board UI**: `react-chessboard`
-*   **Icons**: `lucide-react`
-*   **Effects**: `canvas-confetti`
-*   **Build Tool**: Vite (implied structure)
+## Installation & Usage
 
-## 🚀 Getting Started
-
-### Prerequisites
-
-*   Node.js (v16 or higher)
+**Prerequisites**
+*   Node.js v16+
 *   npm or yarn
 
-### Installation
-
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/yourusername/chess-opening-trainer.git
-    ```
-2.  Navigate to the project directory:
-    ```bash
-    cd chess-opening-trainer
-    ```
-3.  Install dependencies:
-    ```bash
-    npm install
-    ```
-
-### Running the App
-
-Start the development server:
+**Setup**
 
 ```bash
+# Clone the repository
+git clone https://github.com/yourusername/chess-opening-trainer.git
+
+# Install dependencies
+npm install
+
+# Start development server
 npm start
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+## Directory Structure
 
-## 🎮 How to Play
-
-1.  **Select a Mode**: Use the toggle in the top-right corner of the header.
-    *   **Blue Book Icon**: Standard Opening Theory.
-    *   **Red Skull Icon**: Trap/Blunder Refutation.
-2.  **Make a Move**: 
-    *   If you are White, make the first move.
-    *   If you are Black, the computer will move first.
-    *   Drag a piece or click source/target squares to move.
-3.  **Feedback**:
-    *   **Correct**: The game continues, and the opponent responds automatically.
-    *   **Incorrect**: The board shakes (visual feedback) or an error message appears. You must play the specific move defined in the variation.
-4.  **Completion**: Finish the line to trigger the success animation and automatically load the next opening.
-
-## 📂 Project Structure
-
-```
-├── components/
-│   ├── ModeToggle.tsx      # Switch between Book/Newb modes
-│   ├── MoveHistory.tsx     # Displays list of moves played (PGN style)
-│   ├── OpeningTrainer.tsx  # Main game logic, board wrapper, and controls
-│   └── StatsPanel.tsx      # Displays themes and description
-├── data/
-│   └── openings.ts         # Database of opening variations
-├── types.ts                # TypeScript interfaces
-├── App.tsx                 # Main layout and state management
-└── index.tsx               # Entry point
+```text
+/
+├── components/       # UI Presentation (Board, History, Stats)
+├── data/             # Static database of PGN/FEN strings
+├── services/         # Analytics and LocalStorage interaction
+├── types.ts          # TypeScript interfaces for Opening/Attempt data
+└── App.tsx           # Route/View controller
 ```
 
-## 🛡️ License
+## License
 
-This project is open-source and available under the MIT License.
+MIT License. Open source for educational and training purposes.
