@@ -15,6 +15,7 @@ export interface OpeningVariation {
   };
   category: 'book' | 'trap';
   description?: string;
+  followup: string;
 }
 
 export interface TrainingAttempt {

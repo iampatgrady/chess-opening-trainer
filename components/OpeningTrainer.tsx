@@ -6,16 +6,16 @@ import { AnalyticsService } from '../services/analytics';
 import StatsPanel from './StatsPanel';
 import MoveHistory from './MoveHistory';
 import confetti from 'canvas-confetti';
-import { RotateCcw, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, ChevronsRight, Play } from 'lucide-react';
+import { RotateCcw, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, ChevronsRight, Play, Lightbulb, ExternalLink } from 'lucide-react';
 
 interface OpeningTrainerProps {
   opening: OpeningVariation;
-  onNextOpening: () => void;
+  onComplete: (success: boolean) => void;
   moveIndex: number;
   onMoveIndexChange: (index: number) => void;
 }
 
-const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening, moveIndex, onMoveIndexChange }) => {
+const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onComplete, moveIndex, onMoveIndexChange }) => {
   // --- Game Engine (Ref) ---
   const gameRef = useRef<Chess>(new Chess());
   const autoPlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -31,6 +31,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
   const [feedbackType, setFeedbackType] = useState<'success' | 'error' | 'info'>('info');
   const [isCompleted, setIsCompleted] = useState(false);
   const [isTrainingStarted, setIsTrainingStarted] = useState(false);
+  const [isSuccessAttempt, setIsSuccessAttempt] = useState(false);
   
   // --- Analytics State Refs ---
   const attemptStartTimeRef = useRef<number | null>(null);
@@ -84,6 +85,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
     setMoveFrom(null);
     setHintSquares({});
     setIsCompleted(false);
+    setIsSuccessAttempt(false);
     updateFeedback(newGame, 0, 'info'); 
     
     // Reset Analytics
@@ -152,10 +154,11 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
       const endTime = Date.now();
       const totalDuration = attemptStartTimeRef.current ? endTime - attemptStartTimeRef.current : 0;
       
-      // Calculate avg move time (filter user moves if needed, but for simplicity we average all tracked interactions)
-      // Actually, let's use the explicit tracking we added in handleMoveAttempt
       const totalMoveTime = moveDurationsRef.current.reduce((a, b) => a + b, 0);
       const avgMoveTime = moveDurationsRef.current.length > 0 ? totalMoveTime / moveDurationsRef.current.length : 0;
+
+      const isSuccess = !hasFailedRef.current;
+      setIsSuccessAttempt(isSuccess);
 
       AnalyticsService.saveAttempt({
         variation_id: opening.variation_id,
@@ -165,7 +168,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
         player_side: userColor,
         duration_ms: totalDuration,
         avg_time_per_move_ms: avgMoveTime,
-        success: !hasFailedRef.current, // Any miss = fail
+        success: isSuccess,
         mistake_count: mistakeCountRef.current,
       });
 
@@ -174,12 +177,16 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
         setIsCompleted(true);
         setFeedback("Variation Complete!");
         setFeedbackType('success');
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 }
-        });
-        setTimeout(() => onNextOpening(), 2500);
+        
+        if (isSuccess) {
+            confetti({
+              particleCount: 100,
+              spread: 70,
+              origin: { y: 0.6 }
+            });
+        }
+        
+        // Removed auto-advance logic to allow reading the followup
       }, 300);
 
     } else {
@@ -339,7 +346,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
 
     // Mark as failed if they needed a hint
     hasFailedRef.current = true;
-    mistakeCountRef.current += 0.5; // Half penalty for hint? Or just fail. Prompt says "any miss", hint isn't a miss but implies failure to know. Let's count it.
+    mistakeCountRef.current += 0.5;
 
     const expectedMoveSan = opening.moves_san[moveIndex];
     const tempGame = new Chess(gameRef.current.fen());
@@ -363,8 +370,7 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
     }
     if (moveIndex === 0) return;
     
-    // Undo invalidates the timing run effectively, but we won't strictly enforce resetting start time
-    // However, it does mean the "Perfect" run is broken if they had to go back.
+    // Undo invalidates the timing run effectively
     hasFailedRef.current = true;
 
     try {
@@ -412,12 +418,12 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
     
     // Reset Trainer
     setIsTrainingStarted(false); 
-    // Don't auto-start AI here, wait for "Start Training" click
   };
 
   const handleSkip = () => {
     if (autoPlayTimeoutRef.current) clearTimeout(autoPlayTimeoutRef.current);
-    onNextOpening();
+    // Skipping counts as not completing.
+    onComplete(false); 
   };
 
   return (
@@ -465,10 +471,46 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onNextOpening,
             )}
             
             {isCompleted && (
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center z-20 animate-in fade-in duration-300 rounded-lg">
-                <CheckCircle className="w-16 h-16 text-green-400 mb-4" />
-                <h2 className="text-3xl font-bold text-white mb-2">Excellent!</h2>
-                <p className="text-gray-300">Stats saved. Loading next...</p>
+              <div className="absolute inset-0 bg-gray-900/95 backdrop-blur-md flex flex-col items-center justify-center z-30 animate-in fade-in duration-300 rounded-lg p-6">
+                
+                {/* Header Section */}
+                <div className="flex flex-col items-center mb-4 animate-in slide-in-from-bottom-2 duration-500 delay-100">
+                    <CheckCircle className="w-12 h-12 text-green-400 mb-2 drop-shadow-lg" />
+                    <h3 className="text-2xl font-bold text-white tracking-tight">Excellent!</h3>
+                </div>
+
+                {/* Content Area (Followup) */}
+                <div className="w-full max-w-md bg-gray-800/80 border border-gray-700 p-5 rounded-xl shadow-xl mb-6 animate-in slide-in-from-bottom-4 duration-700 delay-200">
+                    <div className="flex items-center gap-2 mb-2 text-blue-400">
+                        <Lightbulb className="w-4 h-4" />
+                        <h4 className="text-xs font-bold uppercase tracking-wider">Strategy Tip</h4>
+                    </div>
+                    <p className="text-gray-100 text-base leading-relaxed">
+                        {opening.followup || "Well done! Proceed to the next variation."}
+                    </p>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-3 animate-in slide-in-from-bottom-6 duration-700 delay-300">
+                    <a 
+                        href={`https://www.chess.com/analysis?fen=${encodeURIComponent(gameRef.current.fen())}&flip=${userColor === 'b' ? 'true' : 'false'}`}
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="group relative inline-flex items-center gap-2 px-5 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-gray-500/25 hover:-translate-y-1"
+                        title="Analyze on Chess.com"
+                    >
+                        <ExternalLink className="w-5 h-5" />
+                        <span className="hidden sm:inline">Analyze</span>
+                    </a>
+
+                    <button 
+                        onClick={() => onComplete(isSuccessAttempt)}
+                        className="group relative inline-flex items-center gap-2 px-8 py-3 bg-green-600 hover:bg-green-500 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-green-500/25 hover:-translate-y-1"
+                    >
+                        <span>Next Variation</span>
+                        <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                    </button>
+                </div>
               </div>
             )}
           </div>
