@@ -6,16 +6,17 @@ import { AnalyticsService } from '../services/analytics';
 import StatsPanel from './StatsPanel';
 import MoveHistory from './MoveHistory';
 import confetti from 'canvas-confetti';
-import { RotateCcw, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, ChevronsRight, Play, Lightbulb, ExternalLink } from 'lucide-react';
+import { RotateCcw, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, ChevronsRight, Play, Lightbulb, ExternalLink, RefreshCw } from 'lucide-react';
 
 interface OpeningTrainerProps {
   opening: OpeningVariation;
   onComplete: (success: boolean) => void;
   moveIndex: number;
   onMoveIndexChange: (index: number) => void;
+  gameMode: 'challenge' | 'training';
 }
 
-const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onComplete, moveIndex, onMoveIndexChange }) => {
+const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onComplete, moveIndex, onMoveIndexChange, gameMode }) => {
   // --- Game Engine (Ref) ---
   const gameRef = useRef<Chess>(new Chess());
   const autoPlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -160,6 +161,8 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onComplete, mo
       const isSuccess = !hasFailedRef.current;
       setIsSuccessAttempt(isSuccess);
 
+      // Only save analytics if in challenge mode (optional, but requested behavior implies training is casual)
+      // Actually, tracking stats in training is fine, but we won't update the "Deck" progress.
       AnalyticsService.saveAttempt({
         variation_id: opening.variation_id,
         variation_name: opening.name,
@@ -185,8 +188,6 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onComplete, mo
               origin: { y: 0.6 }
             });
         }
-        
-        // Removed auto-advance logic to allow reading the followup
       }, 300);
 
     } else {
@@ -491,7 +492,15 @@ const OpeningTrainer: React.FC<OpeningTrainerProps> = ({ opening, onComplete, mo
                 </div>
 
                 {/* Actions */}
-                <div className="flex gap-3 animate-in slide-in-from-bottom-6 duration-700 delay-300">
+                <div className="flex flex-wrap justify-center gap-3 animate-in slide-in-from-bottom-6 duration-700 delay-300">
+                    <button 
+                        onClick={handleReset}
+                        className="group relative inline-flex items-center gap-2 px-5 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-gray-500/25 hover:-translate-y-1"
+                    >
+                        <RefreshCw className="w-5 h-5" />
+                        <span>Retry</span>
+                    </button>
+
                     <a 
                         href={`https://www.chess.com/analysis?fen=${encodeURIComponent(gameRef.current.fen())}&flip=${userColor === 'b' ? 'true' : 'false'}`}
                         target="_blank" 

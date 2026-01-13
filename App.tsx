@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import OpeningTrainer from './components/OpeningTrainer';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
 import ModeToggle from './components/ModeToggle';
+import GameModeToggle from './components/GameModeToggle';
 import { OPENINGS_DB } from './data/openings';
 import { OpeningVariation } from './types';
 import { TrendingUp, BarChart2, Trophy, Star, Layers } from 'lucide-react';
@@ -13,6 +14,7 @@ function App() {
   const [currentOpening, setCurrentOpening] = useState<OpeningVariation | null>(null);
   const [moveIndex, setMoveIndex] = useState(0);
   const [isNewbMode, setIsNewbMode] = useState(false);
+  const [gameMode, setGameMode] = useState<'challenge' | 'training'>('challenge');
   const [view, setView] = useState<'trainer' | 'analytics'>('trainer');
   
   // Easter Egg State
@@ -22,8 +24,29 @@ function App() {
   // Deck Progress State (for UI)
   const [deckProgress, setDeckProgress] = useState({ completed: 0, total: 0 });
 
-  // Function to get a random opening based on mode, progress, and weights
-  const loadRandomOpening = useCallback(() => {
+  // --- Logic for Training Mode (Deterministic) ---
+  const getTrainingList = useCallback(() => {
+     return OPENINGS_DB
+        .filter(op => isNewbMode ? op.category === 'trap' : (op.category === 'book' || !op.category))
+        .sort((a, b) => a.name.localeCompare(b.name));
+  }, [isNewbMode]);
+
+  const loadTrainingOpening = useCallback((specificOp?: OpeningVariation) => {
+     const list = getTrainingList();
+     if (list.length === 0) return;
+
+     if (specificOp) {
+       setCurrentOpening(specificOp);
+     } else if (!currentOpening || !list.find(o => o.variation_id === currentOpening.variation_id)) {
+       setCurrentOpening(list[0]);
+     }
+     setMoveIndex(0);
+     setDeckProgress({ completed: 0, total: list.length }); 
+  }, [getTrainingList, currentOpening]);
+
+
+  // --- Logic for Challenge Mode (Weighted Random) ---
+  const loadRandomChallengeOpening = useCallback(() => {
     // 1. Filter DB based on mode
     const mode = isNewbMode ? 'trap' : 'book';
     const allModeOpenings = OPENINGS_DB.filter(op => {
@@ -46,28 +69,16 @@ function App() {
     let candidates = allModeOpenings.filter(op => !completedIds.includes(op.variation_id));
     
     if (candidates.length === 0) {
-        // Should have been handled by handleCompletion, but safe fallback:
         ProgressService.resetMode(mode);
         candidates = allModeOpenings;
         setDeckProgress({ completed: 0, total: allModeOpenings.length });
     }
 
     // 4. Calculate Weights for the candidates
-    // Logic: "Inverse Weighting" based on historical success rate.
-    // We want users to see their worst performing openings SOONER in the cycle than their best ones.
-    // Since this is a "Deck" system, they will see ALL of them eventually.
-    // But high weight = picked earlier in the run.
-    
     const successRates = AnalyticsService.getVariationSuccessRates();
     
     const weightedCandidates = candidates.map(op => {
       const rate = successRates[op.variation_id] || 0; // 0.0 to 1.0
-      
-      // Weight Formula: 10 + (100 * (1 - rate))
-      // 0% Success -> 110 Weight
-      // 50% Success -> 60 Weight
-      // 100% Success -> 10 Weight
-      // This ensures even mastered openings have a small chance to appear early, but failed ones appear much more often.
       
       let weight = 10 + (100 * (1 - rate));
       
@@ -96,13 +107,36 @@ function App() {
     setMoveIndex(0); 
   }, [isNewbMode, currentOpening]);
 
-  // Initial load & Reload when mode changes
+
+  // --- Master Loader ---
+  const loadNextOpening = useCallback(() => {
+    if (gameMode === 'training') {
+        loadTrainingOpening();
+    } else {
+        loadRandomChallengeOpening();
+    }
+  }, [gameMode, loadTrainingOpening, loadRandomChallengeOpening]);
+
+  // Initial load & Reload when params change
   useEffect(() => {
-    loadRandomOpening(); 
-  }, [isNewbMode]); 
+    loadNextOpening(); 
+  }, [gameMode, isNewbMode]); // React to changes in mode
+
 
   // Handle completion from the Trainer component
   const handleOpeningComplete = (success: boolean) => {
+      if (gameMode === 'training') {
+          // In Training mode, "Next" simply goes to the next index
+          if (!currentOpening) return;
+          const list = getTrainingList();
+          const currentIndex = list.findIndex(op => op.variation_id === currentOpening.variation_id);
+          const nextIndex = (currentIndex + 1) % list.length;
+          setCurrentOpening(list[nextIndex]);
+          setMoveIndex(0);
+          return;
+      }
+
+      // Challenge Mode Logic
       if (success && currentOpening) {
         const mode = isNewbMode ? 'trap' : 'book';
         
@@ -119,15 +153,22 @@ function App() {
         });
 
         if (completedIds.length >= allModeOpenings.length) {
-            // Cycle Complete!
             triggerCelebration(mode);
             ProgressService.resetMode(mode);
-            // We then load next, which will be from a fresh deck
         }
       }
       
-      // Load next (either fresh deck or remaining pool)
-      loadRandomOpening();
+      // Load next
+      loadRandomChallengeOpening();
+  };
+
+  const handleTrainingSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const id = e.target.value;
+      const op = OPENINGS_DB.find(o => o.variation_id === id);
+      if (op) {
+          setCurrentOpening(op);
+          setMoveIndex(0);
+      }
   };
 
   const triggerCelebration = (mode: 'trap' | 'book') => {
@@ -161,15 +202,13 @@ function App() {
     frame();
   };
 
-  const handleModeToggle = (checked: boolean) => {
-    setIsNewbMode(checked);
-  };
-
   const closeCelebration = () => {
     setShowCompletionModal(false);
   };
 
   if (!currentOpening) return <div className="flex h-screen items-center justify-center text-white">Loading...</div>;
+
+  const trainingList = getTrainingList();
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col relative">
@@ -203,7 +242,7 @@ function App() {
                 <button 
                   onClick={() => {
                     closeCelebration();
-                    handleModeToggle(!isNewbMode); 
+                    setIsNewbMode(!isNewbMode); 
                   }}
                   className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold transition-colors flex items-center justify-center gap-2"
                 >
@@ -220,43 +259,69 @@ function App() {
         isNewbMode ? 'bg-red-900/20 border-red-800' : 'bg-gray-800 border-gray-700'
       }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
-          <div className="flex items-center justify-between w-full">
+          <div className="flex items-center justify-between w-full gap-4">
             
             {/* Left: Logo/Analytics Trigger */}
             <div 
-              className="flex items-center gap-3 overflow-hidden cursor-pointer group"
-              onClick={() => setView(view === 'trainer' ? 'analytics' : 'trainer')}
-              title="Click for Analytics"
+              className="flex items-center gap-3 overflow-hidden cursor-pointer group flex-1"
             >
-              <div className={`p-1.5 rounded-lg flex-shrink-0 transition-colors duration-300 relative ${
-                isNewbMode ? 'bg-red-600' : 'bg-blue-600'
-              }`}>
+              <div 
+                  className={`p-1.5 rounded-lg flex-shrink-0 transition-colors duration-300 relative ${
+                    isNewbMode ? 'bg-red-600' : 'bg-blue-600'
+                  }`}
+                  onClick={() => setView(view === 'trainer' ? 'analytics' : 'trainer')}
+              >
                  <TrendingUp className={`h-5 w-5 text-white transition-opacity duration-300 ${view === 'analytics' ? 'opacity-0 absolute' : 'opacity-100'}`} />
                  <BarChart2 className={`h-5 w-5 text-white transition-opacity duration-300 ${view === 'trainer' ? 'opacity-0 absolute' : 'opacity-100'}`} />
               </div>
-              <div className="flex flex-col min-w-0 group-hover:opacity-80 transition-opacity">
-                <span className="text-base font-bold text-white tracking-tight truncate leading-tight">
-                  {view === 'analytics' ? 'Training Analytics' : currentOpening.name}
-                </span>
-                <span className="text-xs text-gray-400 truncate leading-tight flex items-center gap-1.5">
-                   {view === 'analytics' ? 'Track your progress' : (
-                       <>
-                         <span>{currentOpening.eco_code}</span>
-                         <span className="opacity-50">•</span>
-                         <span className="flex items-center gap-1 text-gray-300">
-                             <Layers className="w-3 h-3" />
-                             {deckProgress.completed}/{deckProgress.total} in cycle
-                         </span>
-                       </>
-                   )}
-                </span>
-              </div>
+
+              {view === 'analytics' ? (
+                <div className="flex flex-col min-w-0" onClick={() => setView('trainer')}>
+                    <span className="text-base font-bold text-white tracking-tight">Training Analytics</span>
+                </div>
+              ) : (
+                <div className="flex flex-col min-w-0 flex-1">
+                    {/* In Training Mode, allow Selection */}
+                    {gameMode === 'training' ? (
+                        <div className="w-full max-w-sm">
+                             <select 
+                                value={currentOpening.variation_id}
+                                onChange={handleTrainingSelect}
+                                className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded focus:ring-blue-500 focus:border-blue-500 block p-1"
+                             >
+                                {trainingList.map(op => (
+                                    <option key={op.variation_id} value={op.variation_id}>
+                                        {op.name}
+                                    </option>
+                                ))}
+                             </select>
+                        </div>
+                    ) : (
+                        // Challenge Mode Display
+                        <div className="group-hover:opacity-80 transition-opacity" onClick={() => setView('analytics')}>
+                            <span className="text-base font-bold text-white tracking-tight truncate leading-tight block">
+                                {currentOpening.name}
+                            </span>
+                            <span className="text-xs text-gray-400 truncate leading-tight flex items-center gap-1.5">
+                                <span>{currentOpening.eco_code}</span>
+                                <span className="opacity-50">•</span>
+                                <span className="flex items-center gap-1 text-gray-300">
+                                    <Layers className="w-3 h-3" />
+                                    {deckProgress.completed}/{deckProgress.total} in deck
+                                </span>
+                            </span>
+                        </div>
+                    )}
+                </div>
+              )}
             </div>
 
-            {/* Top Right Toggle (Only show in Trainer View) */}
+            {/* Top Right Toggles (Only show in Trainer View) */}
             {view === 'trainer' && (
-              <div className="flex-shrink-0 ml-2">
-                <ModeToggle isNewbMode={isNewbMode} onToggle={handleModeToggle} />
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <GameModeToggle mode={gameMode} onToggle={setGameMode} />
+                <div className="h-6 w-px bg-gray-700"></div>
+                <ModeToggle isNewbMode={isNewbMode} onToggle={setIsNewbMode} />
               </div>
             )}
           </div>
@@ -273,6 +338,7 @@ function App() {
             onComplete={handleOpeningComplete} 
             moveIndex={moveIndex}
             onMoveIndexChange={setMoveIndex}
+            gameMode={gameMode}
           />
         )}
       </main>
