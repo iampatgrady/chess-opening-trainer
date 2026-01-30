@@ -14,9 +14,11 @@ type EngineMessage = {
 class StockfishService {
   private worker: Worker | null = null;
   private isReady = false;
+  private analysisListener: ((e: MessageEvent) => void) | null = null;
 
   constructor() {
-    // We load stockfish from a CDN to avoid local binary management
+    // Using Stockfish 10 via CDN for stability. 
+    // While SF 17 is newer, SF 10 at depth 15+ is >3200 ELO (Super GM level) and sufficient for training.
     const stockfishUrl = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.0/stockfish.js';
     
     // We check if we are in a browser environment
@@ -38,9 +40,16 @@ class StockfishService {
     };
     this.worker.postMessage('uci');
     this.worker.postMessage('isready');
+    // Align with requested settings: 3 lines
+    this.worker.postMessage('setoption name MultiPV value 3');
   }
 
-  async getEvaluation(fen: string, multiPv: number = 5): Promise<EngineMessage> {
+  // Used for one-shot calculations (AI moves, player move validation)
+  // We use depth 15 for speed/accuracy balance during gameplay (approx 1-2s)
+  async getEvaluation(fen: string, multiPv: number = 3): Promise<EngineMessage> {
+    // Stop any running continuous analysis to prevent conflict
+    this.stopAnalysis();
+
     return new Promise((resolve) => {
       if (!this.worker) return resolve({});
 
@@ -100,8 +109,63 @@ class StockfishService {
       this.worker.postMessage('stop');
       this.worker.postMessage(`position fen ${fen}`);
       this.worker.postMessage(`setoption name MultiPV value ${multiPv}`);
-      this.worker.postMessage('go depth 12');
+      // Depth 15 is a good balance for validation. 
+      // User asked for "Max 10s", but for gameplay validation, 10s is too long. 
+      // We use depth which finishes faster but is accurate.
+      this.worker.postMessage('go depth 15');
     });
+  }
+
+  // Used for the UI Evaluation Bar (Continuous streaming)
+  // This uses the requested "Maximum time 10 sec" setting to give high quality bar analysis.
+  startAnalysis(fen: string, onUpdate: (evalData: Evaluation) => void) {
+    if (!this.worker) return;
+    
+    // Clear previous listener if exists
+    this.stopAnalysis();
+
+    this.analysisListener = (e: MessageEvent) => {
+        const line = e.data;
+        if (typeof line === 'string' && line.startsWith('info') && !line.includes('currmove')) {
+            // We only care about the best move (MultiPV 1 logic for the bar value)
+            const multipvMatch = line.match(/multipv (\d+)/);
+            
+            // If MultiPV is set to 3 globally, we only want to update the bar with the *best* line (multipv 1)
+            // otherwise the bar might flicker with lower scores from 2nd/3rd best moves.
+            if (multipvMatch && multipvMatch[1] !== '1') {
+                return; 
+            }
+
+            const mateMatch = line.match(/score mate (-?\d+)/);
+            const cpMatch = line.match(/score cp (-?\d+)/);
+            
+            // Only update if we have a score
+            if (mateMatch || cpMatch) {
+                if (mateMatch) {
+                    onUpdate({ type: 'mate', value: parseInt(mateMatch[1]) });
+                } else if (cpMatch) {
+                    onUpdate({ type: 'cp', value: parseInt(cpMatch[1]) });
+                }
+            }
+        }
+    };
+
+    this.worker.addEventListener('message', this.analysisListener);
+    
+    this.worker.postMessage('stop');
+    this.worker.postMessage(`position fen ${fen}`);
+    // For the eval bar, we want the single best score, but accurate.
+    this.worker.postMessage('setoption name MultiPV value 1'); 
+    // Run for 10 seconds (10000ms) as requested for high accuracy
+    this.worker.postMessage('go movetime 10000'); 
+  }
+
+  stopAnalysis() {
+    if (this.worker && this.analysisListener) {
+        this.worker.removeEventListener('message', this.analysisListener);
+        this.analysisListener = null;
+        this.worker.postMessage('stop');
+    }
   }
 }
 

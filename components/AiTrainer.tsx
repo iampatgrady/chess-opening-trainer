@@ -15,21 +15,60 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
   
   // Evaluation State
   const [currentEval, setCurrentEval] = useState<{ type: 'cp' | 'mate'; value: number } | null>(null);
+  
+  // Buffer for smoothing evaluation (Last 5 polls)
+  const evalBufferRef = useRef<number[]>([]);
 
   useEffect(() => {
     resetGame();
   }, []); // Run only on mount. Reset logic is handled by parent re-keying.
 
-  // Fetch evaluation whenever FEN changes
+  // Fetch evaluation whenever FEN changes OR Turn changes
   useEffect(() => {
-    // Determine who's to move for correct evaluation context if needed, 
-    // but stockfish returns absolute scores (positive = white advantage)
-    stockfish.getEvaluation(fen, 1).then((data) => {
-        if (data.evaluation) {
-            setCurrentEval(data.evaluation);
+    // Only run continuous analysis when it is the Player's turn.
+    // When it's AI's turn, the engine is busy calculating the move.
+    if (!isTurn) {
+        stockfish.stopAnalysis();
+        return;
+    }
+
+    // Reset buffer on new position
+    evalBufferRef.current = [];
+    setCurrentEval(null);
+
+    // Determine perspective (Engine gives score relative to side to move)
+    // We want absolute score (White perspective)
+    // If Black to move, multiply by -1.
+    const turnColor = fen === 'start' ? 'w' : fen.split(' ')[1];
+    const multiplier = turnColor === 'b' ? -1 : 1;
+
+    stockfish.startAnalysis(fen, (data) => {
+        // Instant update for Mate
+        if (data.type === 'mate') {
+            setCurrentEval({ type: 'mate', value: data.value * multiplier });
+            evalBufferRef.current = []; // Clear buffer so we don't mix CP and Mate
+            return;
+        }
+
+        // Smoothing for Centipawns
+        if (data.type === 'cp') {
+            const absValue = data.value * multiplier;
+
+            const buffer = evalBufferRef.current;
+            buffer.push(absValue);
+            if (buffer.length > 5) buffer.shift(); // Keep last 5
+
+            const sum = buffer.reduce((a, b) => a + b, 0);
+            const avg = sum / buffer.length;
+            
+            setCurrentEval({ type: 'cp', value: avg });
         }
     });
-  }, [fen]);
+
+    return () => {
+        stockfish.stopAnalysis();
+    };
+  }, [fen, isTurn]);
 
   const resetGame = () => {
     const game = new Chess();
@@ -44,6 +83,7 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
     setMoveCount(0);
     setFeedback(null);
     setCurrentEval({ type: 'cp', value: 0 }); // Reset eval
+    evalBufferRef.current = [];
     
     if (playerColor === 'w') {
       // User is White, but AI (Black) needs to respond to the automated first move
@@ -64,7 +104,8 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
   const getAiMoveStrategy = async (moveNum: number, game: Chess): Promise<string | null> => {
     const validMoves = game.moves({ verbose: true });
     
-    const evalData = await stockfish.getEvaluation(game.fen(), 10);
+    // Note: This calls getEvaluation which stops the continuous analysis
+    const evalData = await stockfish.getEvaluation(game.fen(), 3); // Check 3 lines
     const sortedMoves = evalData.possibleMoves?.sort((a, b) => b.score - a.score) || [];
     const bestMoveUci = evalData.bestMove;
 
@@ -142,17 +183,25 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
     game.undo(); 
     setStatus("Checking move quality...");
     
-    stockfish.getEvaluation(fenBefore, 1).then(evalData => {
+    // Check TOP 3 lines (MultiPV 3)
+    stockfish.getEvaluation(fenBefore, 3).then(evalData => {
       const bestMoveUci = evalData.bestMove;
       const userMoveUci = `${source}${target}${move?.promotion ? move.promotion : ''}`;
       
-      const isAcceptable = bestMoveUci?.includes(userMoveUci) || 
-                           (evalData.possibleMoves && evalData.possibleMoves[0]?.uci.includes(userMoveUci));
+      // Check if user move is the best move OR in the top 3 possible moves returned
+      let isAcceptable = false;
+      
+      if (bestMoveUci && bestMoveUci.includes(userMoveUci)) {
+          isAcceptable = true;
+      } else if (evalData.possibleMoves) {
+          // Check if user move is among the returned top lines
+          isAcceptable = evalData.possibleMoves.some(pm => pm.uci.includes(userMoveUci));
+      }
 
       if (isAcceptable) {
         gameRef.current.move({ from: source, to: target, promotion: 'q' });
         setFen(gameRef.current.fen());
-        setFeedback({ type: 'success', msg: "Excellent! Best move found." });
+        setFeedback({ type: 'success', msg: "Excellent! Good move." });
         setIsTurn(false);
         
         // Stop after Move 5 is complete (User plays move 5)
@@ -172,6 +221,26 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
       } else {
         setFeedback({ type: 'error', msg: `Inaccurate. Engine preferred ${bestMoveUci}` });
         setStatus("Your Turn: Try again");
+        
+        // Re-enable analysis since we are back to user turn
+        const turnColor = fenBefore === 'start' ? 'w' : fenBefore.split(' ')[1];
+        const multiplier = turnColor === 'b' ? -1 : 1;
+
+        stockfish.startAnalysis(fenBefore, (data) => {
+             if (data.type === 'mate') {
+                setCurrentEval({ type: 'mate', value: data.value * multiplier });
+                evalBufferRef.current = [];
+                return;
+             }
+             if (data.type === 'cp') {
+                const absValue = data.value * multiplier;
+                const buffer = evalBufferRef.current;
+                buffer.push(absValue);
+                if (buffer.length > 5) buffer.shift();
+                const sum = buffer.reduce((a, b) => a + b, 0);
+                setCurrentEval({ type: 'cp', value: sum / buffer.length });
+            }
+        });
       }
     });
 
@@ -182,6 +251,7 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
   const getEvalBarWidth = () => {
     if (!currentEval) return 50;
     
+    // Absolute values now (Positive = White winning)
     if (currentEval.type === 'mate') {
         if (currentEval.value > 0) return 100; // White mates
         if (currentEval.value < 0) return 0;   // Black mates
@@ -189,10 +259,10 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
     }
 
     // Centipawns logic
-    // +500 cp = 100% white, -500 cp = 0% white (100% black)
-    // Clamp between 5% and 95% to always show a sliver
+    // +500 cp = 100% white bar
+    // -500 cp = 0% white bar (100% black)
     const clampedScore = Math.max(-500, Math.min(500, currentEval.value));
-    const percent = 50 + (clampedScore / 10); // 50 + (500/10) = 100
+    const percent = 50 + (clampedScore / 10); 
     return Math.max(5, Math.min(95, percent));
   };
 
