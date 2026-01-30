@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import OpeningTrainer from './components/OpeningTrainer';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
+import AiTrainer from './components/AiTrainer';
 import ModeToggle from './components/ModeToggle';
-import GameModeToggle from './components/GameModeToggle';
 import { OPENINGS_DB } from './data/openings';
 import { OpeningVariation } from './types';
-import { TrendingUp, BarChart2, Trophy, Star, Layers } from 'lucide-react';
+import { TrendingUp, BarChart2, Trophy, Star, Layers, Dumbbell, Brain } from 'lucide-react';
 import { AnalyticsService } from './services/analytics';
 import { ProgressService } from './services/progress';
 import confetti from 'canvas-confetti';
@@ -14,8 +14,12 @@ function App() {
   const [currentOpening, setCurrentOpening] = useState<OpeningVariation | null>(null);
   const [moveIndex, setMoveIndex] = useState(0);
   const [isNewbMode, setIsNewbMode] = useState(false);
-  const [gameMode, setGameMode] = useState<'challenge' | 'training'>('challenge');
+  const [gameMode, setGameMode] = useState<'challenge' | 'training' | 'ai'>('challenge');
   const [view, setView] = useState<'trainer' | 'analytics'>('trainer');
+  
+  // AI Mode State
+  const [aiPlayerColor, setAiPlayerColor] = useState<'w' | 'b'>('w');
+  const [aiGameId, setAiGameId] = useState(0);
   
   // Easter Egg State
   const [showCompletionModal, setShowCompletionModal] = useState(false);
@@ -23,6 +27,16 @@ function App() {
   
   // Deck Progress State (for UI)
   const [deckProgress, setDeckProgress] = useState({ completed: 0, total: 0 });
+
+  // Initialize random color for AI mode
+  useEffect(() => {
+    setAiPlayerColor(Math.random() > 0.5 ? 'w' : 'b');
+  }, []);
+
+  const resetAiGame = () => {
+    setAiGameId(prev => prev + 1); // Force remount
+    setAiPlayerColor(Math.random() > 0.5 ? 'w' : 'b');
+  };
 
   // --- Logic for Training Mode (Deterministic) ---
   const getTrainingList = useCallback(() => {
@@ -112,14 +126,17 @@ function App() {
   const loadNextOpening = useCallback(() => {
     if (gameMode === 'training') {
         loadTrainingOpening();
-    } else {
+    } else if (gameMode === 'challenge') {
         loadRandomChallengeOpening();
     }
+    // AI mode doesn't use opening DB
   }, [gameMode, loadTrainingOpening, loadRandomChallengeOpening]);
 
   // Initial load & Reload when params change
   useEffect(() => {
-    loadNextOpening(); 
+    if (gameMode !== 'ai') {
+        loadNextOpening(); 
+    }
   }, [gameMode, isNewbMode]); // React to changes in mode
 
 
@@ -206,7 +223,8 @@ function App() {
     setShowCompletionModal(false);
   };
 
-  if (!currentOpening) return <div className="flex h-screen items-center justify-center text-white">Loading...</div>;
+  // Safe loading state check
+  if (!currentOpening && gameMode !== 'ai') return <div className="flex h-screen items-center justify-center text-white">Loading...</div>;
 
   const trainingList = getTrainingList();
 
@@ -255,8 +273,10 @@ function App() {
       )}
 
       {/* Navbar */}
-      <header className={`border-b transition-colors duration-500 sticky top-0 z-20 h-14 flex items-center shadow-sm ${
-        isNewbMode ? 'bg-red-900/20 border-red-800' : 'bg-gray-800 border-gray-700'
+      <header className={`border-b transition-colors duration-500 sticky top-0 z-20 h-16 flex items-center shadow-sm ${
+        isNewbMode && gameMode !== 'ai' ? 'bg-red-900/20 border-red-800' : 
+        gameMode === 'ai' ? 'bg-purple-900/20 border-purple-800' :
+        'bg-gray-800 border-gray-700'
       }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
           <div className="flex items-center justify-between w-full gap-4">
@@ -267,15 +287,21 @@ function App() {
             >
               <div 
                   className={`p-1.5 rounded-lg flex-shrink-0 transition-colors duration-300 relative ${
-                    isNewbMode ? 'bg-red-600' : 'bg-blue-600'
+                    gameMode === 'ai' ? 'bg-purple-600' : isNewbMode ? 'bg-red-600' : 'bg-blue-600'
                   }`}
-                  onClick={() => setView(view === 'trainer' ? 'analytics' : 'trainer')}
+                  onClick={() => gameMode !== 'ai' && setView(view === 'trainer' ? 'analytics' : 'trainer')}
               >
-                 <TrendingUp className={`h-5 w-5 text-white transition-opacity duration-300 ${view === 'analytics' ? 'opacity-0 absolute' : 'opacity-100'}`} />
-                 <BarChart2 className={`h-5 w-5 text-white transition-opacity duration-300 ${view === 'trainer' ? 'opacity-0 absolute' : 'opacity-100'}`} />
+                 {gameMode === 'ai' ? (
+                     <Brain className="h-5 w-5 text-white" />
+                 ) : (
+                    <>
+                        <TrendingUp className={`h-5 w-5 text-white transition-opacity duration-300 ${view === 'analytics' ? 'opacity-0 absolute' : 'opacity-100'}`} />
+                        <BarChart2 className={`h-5 w-5 text-white transition-opacity duration-300 ${view === 'trainer' ? 'opacity-0 absolute' : 'opacity-100'}`} />
+                    </>
+                 )}
               </div>
 
-              {view === 'analytics' ? (
+              {view === 'analytics' && gameMode !== 'ai' ? (
                 <div className="flex flex-col min-w-0" onClick={() => setView('trainer')}>
                     <span className="text-base font-bold text-white tracking-tight">Training Analytics</span>
                 </div>
@@ -285,7 +311,7 @@ function App() {
                     {gameMode === 'training' ? (
                         <div className="w-full max-w-sm">
                              <select 
-                                value={currentOpening.variation_id}
+                                value={currentOpening?.variation_id || ''}
                                 onChange={handleTrainingSelect}
                                 className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded focus:ring-blue-500 focus:border-blue-500 block p-1"
                              >
@@ -296,14 +322,19 @@ function App() {
                                 ))}
                              </select>
                         </div>
+                    ) : gameMode === 'ai' ? (
+                        <div className="flex flex-col">
+                            <span className="text-base font-bold text-white tracking-tight">AI Chaos Mode</span>
+                            <span className="text-xs text-gray-400">Survival Training</span>
+                        </div>
                     ) : (
                         // Challenge Mode Display
                         <div className="group-hover:opacity-80 transition-opacity" onClick={() => setView('analytics')}>
                             <span className="text-base font-bold text-white tracking-tight truncate leading-tight block">
-                                {currentOpening.name}
+                                {currentOpening?.name || "Loading..."}
                             </span>
                             <span className="text-xs text-gray-400 truncate leading-tight flex items-center gap-1.5">
-                                <span>{currentOpening.eco_code}</span>
+                                <span>{currentOpening?.eco_code}</span>
                                 <span className="opacity-50">•</span>
                                 <span className="flex items-center gap-1 text-gray-300">
                                     <Layers className="w-3 h-3" />
@@ -316,12 +347,40 @@ function App() {
               )}
             </div>
 
-            {/* Top Right Toggles (Only show in Trainer View) */}
+            {/* Top Right Toggles */}
             {view === 'trainer' && (
-              <div className="flex items-center gap-3 flex-shrink-0">
-                <GameModeToggle mode={gameMode} onToggle={setGameMode} />
-                <div className="h-6 w-px bg-gray-700"></div>
-                <ModeToggle isNewbMode={isNewbMode} onToggle={setIsNewbMode} />
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {/* 3-Way Mode Switcher */}
+                <div className="flex bg-gray-900/50 p-1 rounded-lg border border-gray-700">
+                    <button 
+                        onClick={() => setGameMode('challenge')}
+                        className={`p-2 rounded-md transition-all ${gameMode === 'challenge' ? 'bg-yellow-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+                        title="Challenge Mode"
+                    >
+                        <Trophy className="w-4 h-4" />
+                    </button>
+                    <button 
+                        onClick={() => setGameMode('training')}
+                        className={`p-2 rounded-md transition-all ${gameMode === 'training' ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+                        title="Training Mode"
+                    >
+                        <Dumbbell className="w-4 h-4" />
+                    </button>
+                    <button 
+                        onClick={() => setGameMode('ai')}
+                        className={`p-2 rounded-md transition-all ${gameMode === 'ai' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+                        title="AI Chaos Mode"
+                    >
+                        <Brain className="w-4 h-4" />
+                    </button>
+                </div>
+                
+                {gameMode !== 'ai' && (
+                    <>
+                    <div className="h-6 w-px bg-gray-700 mx-1"></div>
+                    <ModeToggle isNewbMode={isNewbMode} onToggle={setIsNewbMode} />
+                    </>
+                )}
               </div>
             )}
           </div>
@@ -330,9 +389,12 @@ function App() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto bg-gray-900">
-        {view === 'analytics' ? (
+        {view === 'analytics' && gameMode !== 'ai' ? (
           <AnalyticsDashboard onBack={() => setView('trainer')} />
+        ) : gameMode === 'ai' ? (
+          <AiTrainer key={aiGameId} playerColor={aiPlayerColor} onResetColor={resetAiGame} />
         ) : (
+          currentOpening && (
           <OpeningTrainer 
             opening={currentOpening} 
             onComplete={handleOpeningComplete} 
@@ -340,6 +402,7 @@ function App() {
             onMoveIndexChange={setMoveIndex}
             gameMode={gameMode}
           />
+          )
         )}
       </main>
     </div>
