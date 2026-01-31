@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { stockfish } from '../services/stockfish';
-import { AlertTriangle, CheckCircle, ShieldAlert, BarChart } from 'lucide-react';
+import { AlertTriangle, CheckCircle, ShieldAlert, BarChart, Hourglass } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> = ({ playerColor, onResetColor }) => {
@@ -15,7 +15,9 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
   
   // Evaluation State
   const [currentEval, setCurrentEval] = useState<{ type: 'cp' | 'mate'; value: number } | null>(null);
-  
+  const [validMoves, setValidMoves] = useState<string[]>([]);
+  const [isStabilizing, setIsStabilizing] = useState(false);
+
   // Buffer for smoothing evaluation (Last 5 polls)
   const evalBufferRef = useRef<number[]>([]);
 
@@ -32,9 +34,16 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
         return;
     }
 
-    // Reset buffer on new position
+    // Reset state on new turn
     evalBufferRef.current = [];
     setCurrentEval(null);
+    setValidMoves([]);
+    setIsStabilizing(true);
+
+    // Enforce 750ms stabilization delay to ensure we have high quality moves
+    const stabilizationTimer = setTimeout(() => {
+        setIsStabilizing(false);
+    }, 750);
 
     // Determine perspective (Engine gives score relative to side to move)
     // We want absolute score (White perspective)
@@ -43,29 +52,38 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
     const multiplier = turnColor === 'b' ? -1 : 1;
 
     stockfish.startAnalysis(fen, (data) => {
-        // Instant update for Mate
-        if (data.type === 'mate') {
-            setCurrentEval({ type: 'mate', value: data.value * multiplier });
-            evalBufferRef.current = []; // Clear buffer so we don't mix CP and Mate
-            return;
+        // Update Valid Moves
+        if (data.topMoves && data.topMoves.length > 0) {
+            setValidMoves(data.topMoves);
         }
 
-        // Smoothing for Centipawns
-        if (data.type === 'cp') {
-            const absValue = data.value * multiplier;
+        // Update Evaluation
+        if (data.evaluation) {
+            // Instant update for Mate
+            if (data.evaluation.type === 'mate') {
+                setCurrentEval({ type: 'mate', value: data.evaluation.value * multiplier });
+                evalBufferRef.current = []; // Clear buffer so we don't mix CP and Mate
+                return;
+            }
 
-            const buffer = evalBufferRef.current;
-            buffer.push(absValue);
-            if (buffer.length > 5) buffer.shift(); // Keep last 5
+            // Smoothing for Centipawns
+            if (data.evaluation.type === 'cp') {
+                const absValue = data.evaluation.value * multiplier;
 
-            const sum = buffer.reduce((a, b) => a + b, 0);
-            const avg = sum / buffer.length;
-            
-            setCurrentEval({ type: 'cp', value: avg });
+                const buffer = evalBufferRef.current;
+                buffer.push(absValue);
+                if (buffer.length > 5) buffer.shift(); // Keep last 5
+
+                const sum = buffer.reduce((a, b) => a + b, 0);
+                const avg = sum / buffer.length;
+                
+                setCurrentEval({ type: 'cp', value: avg });
+            }
         }
     });
 
     return () => {
+        clearTimeout(stabilizationTimer);
         stockfish.stopAnalysis();
     };
   }, [fen, isTurn]);
@@ -84,6 +102,7 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
     setFeedback(null);
     setCurrentEval({ type: 'cp', value: 0 }); // Reset eval
     evalBufferRef.current = [];
+    setValidMoves([]);
     
     if (playerColor === 'w') {
       // User is White, but AI (Black) needs to respond to the automated first move
@@ -112,7 +131,6 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
     if (!bestMoveUci) return validMoves[0].lan; 
 
     // Constraint 2: "Book" / Standard (AI Moves 1 & 2)
-    // Applies to Move 2 (moveNum == 1) or Black's first response (moveNum == 0)
     if (moveNum === 1 || moveNum === 0) {
        if (sortedMoves.length > 0) {
            const candidates = sortedMoves.slice(0, 3);
@@ -167,10 +185,10 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
   };
 
   const onDrop = (source: string, target: string) => {
-    if (!isTurn) return false;
+    // Prevent dropping if not turn, stabilizing, or valid moves not ready
+    if (!isTurn || isStabilizing || validMoves.length === 0) return false;
     
     const game = gameRef.current;
-    const fenBefore = game.fen();
     
     let move = null;
     try {
@@ -179,70 +197,44 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
     
     if (!move) return false;
 
-    // Undo to check engine
+    // Undo immediately to check against our list (we just wanted to validate legality and get promotion info)
     game.undo(); 
-    setStatus("Checking move quality...");
     
-    // Check TOP 3 lines (MultiPV 3)
-    stockfish.getEvaluation(fenBefore, 3).then(evalData => {
-      const bestMoveUci = evalData.bestMove;
-      const userMoveUci = `${source}${target}${move?.promotion ? move.promotion : ''}`;
-      
-      // Check if user move is the best move OR in the top 3 possible moves returned
-      let isAcceptable = false;
-      
-      if (bestMoveUci && bestMoveUci.includes(userMoveUci)) {
-          isAcceptable = true;
-      } else if (evalData.possibleMoves) {
-          // Check if user move is among the returned top lines
-          isAcceptable = evalData.possibleMoves.some(pm => pm.uci.includes(userMoveUci));
-      }
+    // Construct User UCI (e.g., e2e4 or a7a8q)
+    const userMoveUci = `${source}${target}${move.promotion ? move.promotion : ''}`;
 
-      if (isAcceptable) {
-        gameRef.current.move({ from: source, to: target, promotion: 'q' });
-        setFen(gameRef.current.fen());
-        setFeedback({ type: 'success', msg: "Excellent! Good move." });
-        setIsTurn(false);
-        
-        // Stop after Move 5 is complete (User plays move 5)
-        const limit = 4;
-        
-        if (moveCount >= limit) {
-           confetti();
-           setStatus("Drill Complete! Starting new round...");
-           // Auto-reset
-           setTimeout(() => {
-             fullReset();
-           }, 2500);
-        } else {
-           setStatus("AI is thinking...");
-           setTimeout(() => aiMakeMove(moveCount), 500);
-        }
+    // INSTANT VALIDATION: Check against pre-calculated validMoves
+    const isAcceptable = validMoves.some(m => m.includes(userMoveUci));
+
+    if (isAcceptable) {
+      gameRef.current.move({ from: source, to: target, promotion: 'q' });
+      setFen(gameRef.current.fen());
+      setFeedback({ type: 'success', msg: "Excellent! Good move." });
+      setIsTurn(false);
+      
+      // Stop after Move 5 is complete (User plays move 5)
+      const limit = 4;
+      
+      if (moveCount >= limit) {
+         confetti();
+         setStatus("Drill Complete! Starting new round...");
+         // Auto-reset
+         setTimeout(() => {
+           fullReset();
+         }, 2500);
       } else {
-        setFeedback({ type: 'error', msg: `Inaccurate. Engine preferred ${bestMoveUci}` });
-        setStatus("Your Turn: Try again");
-        
-        // Re-enable analysis since we are back to user turn
-        const turnColor = fenBefore === 'start' ? 'w' : fenBefore.split(' ')[1];
-        const multiplier = turnColor === 'b' ? -1 : 1;
-
-        stockfish.startAnalysis(fenBefore, (data) => {
-             if (data.type === 'mate') {
-                setCurrentEval({ type: 'mate', value: data.value * multiplier });
-                evalBufferRef.current = [];
-                return;
-             }
-             if (data.type === 'cp') {
-                const absValue = data.value * multiplier;
-                const buffer = evalBufferRef.current;
-                buffer.push(absValue);
-                if (buffer.length > 5) buffer.shift();
-                const sum = buffer.reduce((a, b) => a + b, 0);
-                setCurrentEval({ type: 'cp', value: sum / buffer.length });
-            }
-        });
+         setStatus("AI is thinking...");
+         setTimeout(() => aiMakeMove(moveCount), 500);
       }
-    });
+    } else {
+      setFeedback({ type: 'error', msg: `Inaccurate. Engine preferred ${validMoves[0]}` });
+      setStatus("Your Turn: Try again");
+      
+      // IMPORTANT: Do NOT restart analysis. 
+      // The analysis is still running in the background (we never stopped it, 
+      // we only stopped it when isTurn becomes false). 
+      // Since isTurn is STILL true, the effect is still active and validMoves are still fresh.
+    }
 
     return true; 
   };
@@ -258,9 +250,6 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
         return 50;
     }
 
-    // Centipawns logic
-    // +500 cp = 100% white bar
-    // -500 cp = 0% white bar (100% black)
     const clampedScore = Math.max(-500, Math.min(500, currentEval.value));
     const percent = 50 + (clampedScore / 10); 
     return Math.max(5, Math.min(95, percent));
@@ -273,6 +262,7 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
   };
   
   const evalPercent = getEvalBarWidth();
+  const canMove = isTurn && !isStabilizing && validMoves.length > 0;
 
   return (
     <div className="max-w-4xl mx-auto p-4 flex flex-col items-center animate-in fade-in duration-500">
@@ -283,11 +273,13 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
          }`}>
             {playerColor === 'w' ? 'Playing as White' : 'Playing as Black'}
          </div>
-         <p className="text-gray-400 text-sm font-mono h-5">{status}</p>
+         <p className="text-gray-400 text-sm font-mono h-5 flex items-center gap-2">
+            {isStabilizing ? <><Hourglass className="w-3 h-3 animate-spin"/> Stabilizing...</> : status}
+         </p>
       </div>
       
       <div className="w-full max-w-[500px] flex flex-col gap-1">
-        <div className="shadow-2xl rounded-lg overflow-hidden border-4 border-gray-700">
+        <div className={`shadow-2xl rounded-lg overflow-hidden border-4 transition-colors duration-300 ${isStabilizing ? 'border-yellow-500/50' : 'border-gray-700'}`}>
             <Chessboard 
                 id="AiTrainerBoard"
                 position={fen} 
@@ -296,6 +288,7 @@ const AiTrainer: React.FC<{ playerColor: 'w' | 'b'; onResetColor: () => void }> 
                 customDarkSquareStyle={{ backgroundColor: '#779556' }} 
                 customLightSquareStyle={{ backgroundColor: '#ebecd0' }}
                 animationDuration={200}
+                arePiecesDraggable={canMove}
             />
         </div>
         

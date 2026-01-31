@@ -44,7 +44,7 @@ class StockfishService {
     this.worker.postMessage('setoption name MultiPV value 3');
   }
 
-  // Used for one-shot calculations (AI moves, player move validation)
+  // Used for one-shot calculations (AI moves)
   // We use depth 15 for speed/accuracy balance during gameplay (approx 1-2s)
   async getEvaluation(fen: string, multiPv: number = 3): Promise<EngineMessage> {
     // Stop any running continuous analysis to prevent conflict
@@ -110,42 +110,56 @@ class StockfishService {
       this.worker.postMessage(`position fen ${fen}`);
       this.worker.postMessage(`setoption name MultiPV value ${multiPv}`);
       // Depth 15 is a good balance for validation. 
-      // User asked for "Max 10s", but for gameplay validation, 10s is too long. 
-      // We use depth which finishes faster but is accurate.
       this.worker.postMessage('go depth 15');
     });
   }
 
-  // Used for the UI Evaluation Bar (Continuous streaming)
+  // Used for the UI Evaluation Bar and Continuous Validation
   // This uses the requested "Maximum time 10 sec" setting to give high quality bar analysis.
-  startAnalysis(fen: string, onUpdate: (evalData: Evaluation) => void) {
+  // It throttles updates to avoid UI lag.
+  startAnalysis(fen: string, onUpdate: (data: { evaluation?: Evaluation; topMoves?: string[] }) => void) {
     if (!this.worker) return;
     
     // Clear previous listener if exists
     this.stopAnalysis();
 
+    const currentLines: Record<number, string> = {};
+    let lastUpdate = 0;
+    let pendingEvaluation: Evaluation | undefined = undefined;
+
     this.analysisListener = (e: MessageEvent) => {
         const line = e.data;
         if (typeof line === 'string' && line.startsWith('info') && !line.includes('currmove')) {
-            // We only care about the best move (MultiPV 1 logic for the bar value)
             const multipvMatch = line.match(/multipv (\d+)/);
-            
-            // If MultiPV is set to 3 globally, we only want to update the bar with the *best* line (multipv 1)
-            // otherwise the bar might flicker with lower scores from 2nd/3rd best moves.
-            if (multipvMatch && multipvMatch[1] !== '1') {
-                return; 
+            const idx = multipvMatch ? parseInt(multipvMatch[1]) : 1;
+
+            // Extract Move
+            const pvMatch = line.match(/ pv (.*?)$/);
+            if (pvMatch) {
+                const move = pvMatch[1].split(' ')[0];
+                currentLines[idx] = move;
             }
 
-            const mateMatch = line.match(/score mate (-?\d+)/);
-            const cpMatch = line.match(/score cp (-?\d+)/);
-            
-            // Only update if we have a score
-            if (mateMatch || cpMatch) {
+            // Extract Score (only from best line 1)
+            if (idx === 1) {
+                const mateMatch = line.match(/score mate (-?\d+)/);
+                const cpMatch = line.match(/score cp (-?\d+)/);
+                
                 if (mateMatch) {
-                    onUpdate({ type: 'mate', value: parseInt(mateMatch[1]) });
+                    pendingEvaluation = { type: 'mate', value: parseInt(mateMatch[1]) };
                 } else if (cpMatch) {
-                    onUpdate({ type: 'cp', value: parseInt(cpMatch[1]) });
+                    pendingEvaluation = { type: 'cp', value: parseInt(cpMatch[1]) };
                 }
+            }
+
+            // Throttle updates to ~20fps (50ms)
+            const now = Date.now();
+            if (now - lastUpdate > 50) {
+                lastUpdate = now;
+                onUpdate({
+                    evaluation: pendingEvaluation,
+                    topMoves: Object.values(currentLines)
+                });
             }
         }
     };
@@ -154,8 +168,8 @@ class StockfishService {
     
     this.worker.postMessage('stop');
     this.worker.postMessage(`position fen ${fen}`);
-    // For the eval bar, we want the single best score, but accurate.
-    this.worker.postMessage('setoption name MultiPV value 1'); 
+    // We want top 3 moves for validation
+    this.worker.postMessage('setoption name MultiPV value 3'); 
     // Run for 10 seconds (10000ms) as requested for high accuracy
     this.worker.postMessage('go movetime 10000'); 
   }
